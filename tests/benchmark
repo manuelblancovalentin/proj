@@ -1,0 +1,24 @@
+#!/usr/bin/env zsh
+emulate -L zsh
+setopt errexit nounset pipefail
+zmodload zsh/datetime
+
+root=${0:A:h:h}
+iterations=${1:-30}
+typeset -a samples
+local -F start elapsed total=0
+local -i i
+
+for (( i = 1; i <= iterations; i++ )); do
+  start=$EPOCHREALTIME
+  zsh -f -c 'source "$1/shell/init.zsh"' zsh "$root"
+  elapsed=$(( (EPOCHREALTIME - start) * 1000.0 ))
+  samples+=("$elapsed")
+done
+samples=(${(on)samples})
+for elapsed in $samples; do
+  total=$(( total + elapsed ))
+done
+printf 'proj shell init: n=%d min=%.3f ms median=%.3f ms mean=%.3f ms max=%.3f ms\n' \
+  "$iterations" "$samples[1]" "$samples[$(( (iterations + 1) / 2 ))]" \
+  "$(( total / iterations ))" "$samples[-1]"

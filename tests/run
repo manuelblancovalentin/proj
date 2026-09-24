@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/proj-tests.XXXXXX")
+trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
+
+fail() {
+  printf 'not ok - %s\n' "$1" >&2
+  exit 1
+}
+
+pass() {
+  printf 'ok - %s\n' "$1"
+}
+
+bash -n "$root/bin/proj" || fail "launcher syntax"
+zsh -n "$root/shell/init.zsh" || fail "Zsh adapter syntax"
+zsh -n "$root/shell/completion.zsh" || fail "Zsh completion syntax"
+zsh -n "$root/shell/completions/_proj" || fail "Zsh completion function syntax"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root" /usr/bin/python3 -c '
+import ast, pathlib, sys
+for path in pathlib.Path(sys.argv[1]).glob("*.py"):
+    ast.parse(path.read_text(), filename=str(path))
+' "$root/proj" || fail "Python syntax"
+pass "all implementation files parse"
+
+shell_state=$(zsh -f -c '
+  source "$1/shell/init.zsh"
+  source "$1/shell/init.zsh"
+  _proj_setup_mamba_alias
+  typeset -a matches
+  typeset -a man_matches
+  typeset -a data_matches
+  matches=(${(M)path:#$PROJ_GLOBAL_BIN})
+  man_matches=(${(s.:.)MANPATH})
+  man_matches=(${(M)man_matches:#$PROJ_GLOBAL_MAN})
+  data_matches=(${(s.:.)XDG_DATA_DIRS})
+  data_matches=(${(M)data_matches:#$PROJ_GLOBAL_SHARE})
+  print -r -- \
+    "${#matches} ${#man_matches} ${#data_matches} $(( $+aliases[mamba] ))"
+' zsh "$root")
+[ "$shell_state" = '1 1 1 1' ] ||
+  fail "idempotent PATH, MANPATH, XDG data, and mamba alias: $shell_state"
+pass "shell initialization is idempotent and provides command integration"
+
+zsh -f -c '
+  unset PROJ_ACTIVE PROJ_MODULE
+  source "$1/shell/init.zsh"
+  [[ -z ${PROJ_ACTIVE-} && -z ${PROJ_MODULE-} ]]
+' zsh "$root" || fail "implicit project activation"
+pass "shell initialization never activates a project environment"
+
+completion_projects=$(PROJ_HOME="$tmp/completion-home" \
+  "$root/bin/proj" _complete projects)
+[ -z "$completion_projects" ] || fail "unexpected completion fixture projects"
+completion_state=$(zsh -f -c '
+  source "$1/shell/init.zsh"
+  autoload -Uz compinit
+  compinit -d "$2/zcompdump"
+  print -r -- "${_comps[proj]-}"
+' zsh "$root" "$tmp")
+[ "$completion_state" = _proj ] || fail "late completion registration"
+completion_state=$(zsh -f -c '
+  autoload -Uz compinit
+  compinit -d "$2/zcompdump-early"
+  source "$1/shell/init.zsh"
+  print -r -- "${_comps[proj]-}"
+' zsh "$root" "$tmp")
+[ "$completion_state" = _proj ] || fail "early completion registration"
+pass "native completion registers without startup-time project discovery"
+
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root" \
+  /usr/bin/python3 -m unittest discover -s "$root/tests" -p 'test_*.py' \
+  >/dev/null || fail "Python unit tests"
+pass "metadata, discovery, and modulefile unit tests"
+
+managed_root="$tmp/work/atlas"
+managed_home="$tmp/proj-home"
+mkdir -p "$managed_root"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" create atlas --root "$managed_root" >"$tmp/create-output" ||
+  fail "managed project creation"
+managed_metadata="$managed_home/envs/atlas/project.toml"
+[ -f "$managed_metadata" ] || fail "managed metadata path"
+grep -q "Metadata and configuration present at $managed_metadata" "$tmp/create-output" ||
+  fail "creation confirmation"
+grep -q '^# description = ' "$managed_metadata" ||
+  fail "commented starter fields"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" PROJ_ACTIVE=atlas \
+  "$root/bin/proj" config project.description="Atlas development" >/dev/null ||
+  fail "active-project config write"
+[ "$(PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  PROJ_ACTIVE=atlas "$root/bin/proj" config project.description)" = \
+  "Atlas development" ] || fail "active-project config read"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" PROJ_ACTIVE=atlas \
+  "$root/bin/proj" module add compiler gcc/14 >/dev/null ||
+  fail "module helper"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" PROJ_ACTIVE=atlas \
+  "$root/bin/proj" info | grep -q 'Atlas development' ||
+  fail "active environment info"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" info --env atlas | grep -q 'gcc/14' ||
+  fail "named environment info"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" config --env atlas project.description | \
+  grep -q '^Atlas development$' || fail "canonical environment selector"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" env show atlas | grep -q 'Gcc/14' &&
+  fail "unexpected output normalization"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" env show atlas | grep -q 'gcc/14' ||
+  fail "module helper persisted metadata"
+
+fake_bin="$tmp/fake-bin"
+mkdir -p "$fake_bin"
+cat >"$fake_bin/micromamba" <<EOF
+#!/usr/bin/env sh
+printf '%s\n' '{"envs":["/opt/mamba/envs/atlas","/opt/mamba/envs/tools"]}'
+EOF
+chmod +x "$fake_bin/micromamba"
+MAMBA_EXE="$fake_bin/micromamba" PATH="$fake_bin:$PATH" PROJ_HOME="$managed_home" \
+  "$root/bin/proj" python-env list | grep -q '^atlas$' ||
+  fail "micromamba environment discovery"
+MAMBA_EXE="$fake_bin/micromamba" PATH="$fake_bin:$PATH" PROJ_HOME="$managed_home" PROJ_ACTIVE=atlas \
+  "$root/bin/proj" set-python-env atlas >/dev/null ||
+  fail "Python environment helper"
+grep -q '^environment = "atlas"$' "$managed_metadata" ||
+  fail "Python environment persisted"
+pass "create and active-project configuration workflow"
+
+project_root="$tmp/projects/demo"
+mkdir -p "$project_root"
+cat > "$project_root/project.toml" <<EOF
+schema = 1
+
+[project]
+name = "demo"
+description = "Shell lifecycle fixture"
+root = "$project_root"
+shell = "zsh"
+
+[python]
+manager = "micromamba"
+environment = "demo"
+
+[modules]
+project = []
+toolchain = []
+application = []
+compiler = []
+
+[environment]
+DEMO_ACTIVE = "yes"
+
+[paths]
+prepend = []
+
+[aliases]
+demo-name = "print demo"
+
+[hooks]
+startup = []
+shutdown = []
+EOF
+
+PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  "$root/bin/proj" list | grep -q demo || fail "project listing"
+PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  "$root/bin/proj" env show demo | grep -q 'project/demo' ||
+  fail "effective environment display"
+pass "CLI discovers and materializes project environments"
+
+if PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  "$root/bin/proj" activate demo >/dev/null 2>&1; then
+  fail "executable activation bypassed shell adapter"
+fi
+pass "mutating commands require the shell adapter"
+
+PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  zsh -f -c '
+    fixture_root=$2
+    module() {
+      case $1 in
+        use|unuse) return 0 ;;
+        load)
+          export PROJ_ACTIVE=demo
+          export PROJ_ROOT=$fixture_root
+          export PROJ_METADATA="$PROJ_ROOT/project.toml"
+          export PROJ_MODULE=$2
+          export PROJ_MAMBA_ENV=demo
+          export DEMO_ACTIVE=yes
+          export LOADEDMODULES=$2
+          ;;
+        unload)
+          unset PROJ_ACTIVE PROJ_ROOT PROJ_METADATA PROJ_MODULE
+          unset PROJ_MAMBA_ENV DEMO_ACTIVE LOADEDMODULES
+          ;;
+      esac
+    }
+    micromamba() {
+      case $1 in
+        activate)
+          export CONDA_DEFAULT_ENV=$2
+          export CONDA_SHLVL=$(( ${CONDA_SHLVL:-0} + 1 ))
+          ;;
+        deactivate)
+          unset CONDA_DEFAULT_ENV
+          export CONDA_SHLVL=$(( ${CONDA_SHLVL:-1} - 1 ))
+          ;;
+      esac
+    }
+    source "$1/shell/init.zsh"
+    _proj_setup_mamba_alias
+    (( $+aliases[mamba] )) || exit 10
+    start=$PWD
+    proj activate demo || exit 11
+    [[ $PROJ_ACTIVE == demo && $PWD == "$2" && $DEMO_ACTIVE == yes ]] || exit 12
+    [[ $(proj current) == demo ]] || exit 13
+    proj deactivate || exit 14
+    [[ -z ${PROJ_ACTIVE-} && $PWD == $start && ${CONDA_SHLVL:-0} == 0 ]] || exit 15
+  ' zsh "$root" "$project_root" || fail "transactional shell lifecycle"
+pass "activation and deactivation mutate and restore the parent Zsh"
+
+failing_root="$tmp/projects/failing"
+mkdir -p "$failing_root"
+cat > "$failing_root/project.toml" <<EOF
+schema = 1
+
+[project]
+name = "failing"
+description = "Rollback fixture"
+root = "$failing_root"
+shell = "zsh"
+
+[modules]
+project = []
+toolchain = []
+application = []
+compiler = []
+
+[hooks]
+startup = [["/usr/bin/false"]]
+shutdown = []
+EOF
+
+PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  zsh -f -c '
+    fixture_root=$2
+    module() {
+      case $1 in
+        use|unuse) return 0 ;;
+        load)
+          export PROJ_ACTIVE=failing
+          export PROJ_ROOT=$fixture_root
+          export PROJ_METADATA="$PROJ_ROOT/project.toml"
+          export PROJ_MODULE=$2
+          export LOADEDMODULES=$2
+          ;;
+        unload)
+          unset PROJ_ACTIVE PROJ_ROOT PROJ_METADATA PROJ_MODULE LOADEDMODULES
+          ;;
+      esac
+    }
+    source "$1/shell/init.zsh"
+    start=$PWD
+    if proj activate failing >/dev/null 2>&1; then
+      exit 20
+    fi
+    [[ -z ${PROJ_ACTIVE-} && $PWD == $start ]] || exit 21
+  ' zsh "$root" "$failing_root" || fail "activation rollback"
+pass "failed startup hooks roll back shell state"
+
+layout="$tmp/layout"
+mkdir -p "$layout/bin"
+PROJ_GLOBAL_BIN="$layout/bin" PROJ_GLOBAL_MAN="$layout/share/man" \
+  PROJ_GLOBAL_TLDR="$layout/share/tldr" \
+  "$root/bin/proj" install >/dev/null
+PROJ_GLOBAL_BIN="$layout/bin" PROJ_GLOBAL_MAN="$layout/share/man" \
+  PROJ_GLOBAL_TLDR="$layout/share/tldr" \
+  "$root/bin/proj" install >/dev/null
+[ "$(readlink "$layout/bin/proj")" = '../proj/bin/proj' ] ||
+  fail "relative global link"
+[ "$(readlink "$layout/share/man/man1/proj.1")" = \
+  '../../../proj/share/man/man1/proj.1' ] || fail "relative manual link"
+[ "$(readlink "$layout/share/tldr/pages/common/proj.md")" = \
+  '../../../../proj/share/tldr/pages/common/proj.md' ] ||
+  fail "relative TLDR link"
+ln -s "$root" "$layout/proj"
+PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  "$layout/bin/proj" list >/dev/null || fail "symlink-aware launcher"
+MANPATH="$layout/share/man" man -w proj | grep -q "$root/share/man/man1/proj.1" ||
+  fail "manual lookup"
+MANPATH="$layout/share/man" man proj | col -b | grep -q \
+  'manage project development environments with Lmod' || fail "manual rendering"
+XDG_DATA_DIRS="$layout/share" TLDR_NETWORK_ENABLED=0 tldr proj | grep -q \
+  'Register the current directory as a project' || fail "TLDR rendering"
+pass "global command, manual, and TLDR links are idempotent and usable"
+
+conflict_bin="$tmp/conflict-bin"
+mkdir -p "$conflict_bin"
+printf 'conflict\n' > "$conflict_bin/proj"
+if PROJ_GLOBAL_BIN="$conflict_bin" PROJ_GLOBAL_MAN="$tmp/conflict-man" \
+  PROJ_GLOBAL_TLDR="$tmp/conflict-tldr" \
+  "$root/bin/proj" install >/dev/null 2>&1; then
+  fail "installer accepted conflict"
+fi
+pass "installer refuses conflicting command paths"
+
+PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  "$root/bin/proj" doctor >"$tmp/doctor" 2>&1 &&
+  fail "doctor missed unloaded shell integration"
+grep -q 'Lmod' "$tmp/doctor" || fail "doctor Lmod diagnostic"
+grep -q 'module function' "$tmp/doctor" || fail "doctor module-function diagnostic"
+pass "doctor reports real host and shell integration state"
+
+printf 'all tests passed\n'

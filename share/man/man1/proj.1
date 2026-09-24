@@ -1,0 +1,194 @@
+.TH PROJ 1 "July 2026" "proj 0.1.0" "User Commands"
+.SH NAME
+proj \- manage project development environments with Lmod
+.SH SYNOPSIS
+.B proj
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B proj
+is a metadata-driven project environment manager for Fedora and Zsh.
+It coordinates Lmod modules, optional micromamba environments, project
+variables, paths, aliases, and lifecycle hooks.
+It does not replace Git, Lmod, or Python environment management.
+.PP
+Managed metadata is stored in
+.IR ~/.proj/envs/ name /project.toml
+and points to the actual project root.
+The active project is local to the current shell.
+.SH QUICK START
+.nf
+cd /path/to/atlas
+proj create atlas
+proj activate atlas
+proj config project.description="Atlas development"
+proj set-python-env atlas
+proj module add compiler gcc/14
+.fi
+.SH COMMANDS
+.TP
+.BI "proj create " name " [--root " directory ]
+Register a project. The root defaults to the current directory. Creates a
+valid starter document beneath
+.IR ~/.proj/envs ,
+prints its location, and leaves optional fields commented.
+.TP
+.B proj list
+List registered project environments.
+.TP
+.BI "proj activate " name
+Load the generated project Lmod module, activate the configured micromamba
+environment, change to the project root, and run startup hooks.
+This command requires the Zsh integration.
+.TP
+.B proj deactivate
+Reverse the activation performed in the current shell.
+.TP
+.B proj current
+Print the active project name. Returns nonzero when none is active.
+.TP
+.B proj status
+Display the active project and report module or micromamba state drift.
+.TP
+.BR "proj info " "[--env " name "]"
+Render effective project metadata. With no option, select the active project
+environment. The Zsh integration uses the dots bordered panel when available.
+.TP
+.BR "proj config " "[--env " name "] " key [ = value ]
+Read or write metadata. Without
+.I --env
+the active project is selected. Values use TOML syntax; unquoted text is
+treated as a string. Environment-affecting changes take effect after
+reactivation.
+.TP
+.BR "proj set-python-env " "[--env " name "] " environment
+Validate and link an existing micromamba environment.
+.B proj
+does not create the Python environment.
+.TP
+.B proj python-env list
+List environments reported by micromamba.
+.TP
+.BR "proj module " "{list|add|remove} " category " [" module "]"
+Manage module dependencies. Categories are
+.BR project ,
+.BR toolchain ,
+.BR application ,
+and
+.BR compiler .
+The active project is selected unless
+.I --env
+is supplied.
+.TP
+.B proj env list
+List generated Lmod project modules and whether each cache entry is current.
+.TP
+.BI "proj env show " name
+Show validated metadata and the effective generated environment.
+.TP
+.B proj doctor
+Check Zsh integration, Lmod, micromamba, metadata, and writable cache state.
+.TP
+.B proj install
+Idempotently expose the canonical command beneath
+.I /tools/bin
+and this manual page beneath
+.IR /tools/share/man/man1 .
+Existing conflicting paths are never overwritten.
+.SH CONFIGURATION KEYS
+Generic configuration supports:
+.PP
+.nf
+project.description     project.root
+project.shell           python.manager
+python.environment      paths.prepend
+hooks.startup           hooks.shutdown
+modules.<category>      environment.<variable>
+aliases.<name>
+.fi
+.PP
+Examples:
+.PP
+.nf
+proj config project.description="Research tools"
+proj config environment.PROJECT_MODE=development
+proj config paths.prepend='["${project.root}/bin"]'
+proj config aliases.project-root='cd ${project.root}'
+.fi
+.SH FILES
+.TP
+.IR ~/.proj/envs/ name /project.toml
+Managed project metadata.
+.TP
+.I ~/.config/proj/config.toml
+Optional global configuration.
+.TP
+.I ~/.cache/proj/modulefiles
+Generated Lmod modulefile cache.
+.TP
+.I /tools/proj/shell/init.zsh
+Zsh integration that permits activation to modify the parent shell.
+.SH ENVIRONMENT
+.TP
+.B PROJ_ACTIVE
+Name of the active project.
+.TP
+.B PROJ_HOME
+Override the managed registry home. Defaults to
+.IR ~/.proj .
+.TP
+.B PROJ_CONFIG
+Override the global configuration file.
+.TP
+.B PROJ_PROJECT_ROOTS
+Colon-separated additional metadata roots.
+.TP
+.B PROJ_CACHE_HOME
+Override the cache directory.
+.TP
+.B PROJ_GLOBAL_BIN
+Override the public command directory during installation and shell setup.
+.TP
+.B PROJ_GLOBAL_MAN
+Override the public manual root during installation and shell setup.
+.SH COMPLETION
+The Zsh adapter adds its completion directory to
+.B fpath
+and supports both earlier and later
+.B compinit
+ordering. Commands, project names, configuration keys, module categories, and
+micromamba environments are completed. Metadata discovery is deferred until
+completion is requested.
+.PP
+For module changes, completion proceeds from action to category to module.
+The
+.B add
+action offers modules currently available through Lmod; the
+.B remove
+action offers modules configured in that category for the selected project.
+Proj categories organize metadata and do not claim that Lmod provides a
+universal category taxonomy.
+.SH NOTES
+Lmod remains authoritative for environment mutation and uses the
+.B project
+family to enforce one active project environment.
+Micromamba remains authoritative for Python environments.
+Task metadata may be displayed, but
+.B proj run
+is not implemented.
+.PP
+When dots logging functions are available, lifecycle messages use their
+colored success, information, and error styles. Otherwise proj uses a
+standalone Unicode fallback.
+.PP
+.B --project
+is retained as a compatibility alias for
+.BR --env .
+.SH EXIT STATUS
+Zero indicates success. Status 1 is used for negative queries such as no active
+project. Status 2 indicates invalid configuration, unavailable integration, or
+unsafe state.
+.SH SEE ALSO
+.BR zsh (1),
+.BR module (1),
+.BR micromamba (1)

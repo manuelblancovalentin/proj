@@ -1,0 +1,127 @@
+#compdef proj
+
+_proj_project_names() {
+  local -a projects
+  projects=(${(f)"$(_proj_cli _complete projects 2>/dev/null)"})
+  (( ${#projects} )) && _describe 'project environment' projects
+}
+
+_proj_python_environments() {
+  local -a environments
+  environments=(${(f)"$(_proj_cli python-env list 2>/dev/null)"})
+  (( ${#environments} )) &&
+    _describe 'micromamba environment' environments
+}
+
+_proj_available_modules() {
+  setopt local_options extended_glob
+  local line
+  local -a lmod_modules=()
+  for line in ${(f)"$(module --terse avail 2>&1)"}; do
+    line=${line##[[:space:]]#}
+    line=${line%%[[:space:]]#}
+    [[ -z $line || $line == *: || $line == */ ]] && continue
+    line=${line%%[[:space:]]##\(*}
+    lmod_modules+=("$line")
+  done
+  (( ${#lmod_modules} )) &&
+    _describe 'available Lmod module' lmod_modules
+}
+
+_proj_configured_modules() {
+  local category=$1
+  local -a configured
+  configured=(${(f)"$(_proj_cli module list "$category" 2>/dev/null)"})
+  (( ${#configured} )) && _describe 'configured Lmod module' configured
+}
+
+local -a commands module_actions module_categories env_actions python_actions
+commands=(
+  'create:Register a project environment'
+  'list:List registered projects'
+  'activate:Activate a project environment'
+  'deactivate:Deactivate the current project'
+  'current:Print the active project name'
+  'status:Show active project state'
+  'info:Show project environment metadata'
+  'config:Read or write project metadata'
+  'set-python-env:Link a micromamba environment'
+  'python-env:Inspect Python environments'
+  'module:Manage Lmod dependencies'
+  'env:Inspect generated environments'
+  'doctor:Check dependencies and integration'
+  'install:Expose the command and documentation'
+)
+module_actions=(
+  'list:List configured modules'
+  'add:Add a module dependency'
+  'remove:Remove a module dependency'
+)
+module_categories=(
+  'project:Project environment modules'
+  'toolchain:Build and language toolchains'
+  'application:Runtime applications'
+  'compiler:Compiler modules'
+)
+env_actions=(
+  'list:List generated environments'
+  'show:Show an effective environment'
+)
+python_actions=('list:List micromamba environments')
+
+# Direct positional dispatch is intentionally used instead of a nested
+# _arguments state machine. It mirrors argparse exactly and remains predictable
+# for commands with several positional choices.
+if (( CURRENT == 2 )); then
+  _describe 'proj command' commands
+  return
+fi
+
+if [[ ${words[CURRENT-1]-} == --env || ${words[CURRENT-1]-} == --project ]]; then
+  _proj_project_names
+  return
+fi
+
+case $words[2] in
+  activate)
+    (( CURRENT == 3 )) && _proj_project_names
+    ;;
+  config)
+    if (( CURRENT == 3 )); then
+      _values 'configuration key' \
+        project.description project.root project.shell \
+        python.manager python.environment paths.prepend \
+        hooks.startup hooks.shutdown
+    fi
+    ;;
+  info)
+    if (( CURRENT == 3 )); then
+      _values 'option' --env
+    fi
+    ;;
+  set-python-env)
+    (( CURRENT == 3 )) && _proj_python_environments
+    ;;
+  python-env)
+    (( CURRENT == 3 )) && _describe 'Python environment action' python_actions
+    ;;
+  module)
+    if (( CURRENT == 3 )); then
+      _describe 'module action' module_actions
+    elif (( CURRENT == 4 )); then
+      _describe 'module category' module_categories
+    elif (( CURRENT == 5 )); then
+      case $words[3] in
+        add) _proj_available_modules ;;
+        remove) _proj_configured_modules "$words[4]" ;;
+      esac
+    fi
+    ;;
+  env)
+    if (( CURRENT == 3 )); then
+      _describe 'environment action' env_actions
+    elif [[ $words[3] == show && CURRENT == 4 ]]; then
+      _proj_project_names
+    fi
+    ;;
+esac

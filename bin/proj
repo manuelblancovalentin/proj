@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -eu
+
+script=$0
+while [ -L "$script" ]; do
+  script_dir=$(CDPATH= cd -P -- "$(dirname -- "$script")" && pwd)
+  target=$(readlink "$script")
+  case $target in
+    /*) script=$target ;;
+    *) script=$script_dir/$target ;;
+  esac
+done
+root=$(CDPATH= cd -P -- "$(dirname -- "$script")/.." && pwd)
+export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+exec /usr/bin/python3 -m proj.cli "$@"
