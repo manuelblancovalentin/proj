@@ -13,4 +13,4 @@ done
 root=$(CDPATH= cd -P -- "$(dirname -- "$script")/.." && pwd)
 export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
-exec /usr/bin/python3 -m proj.cli "$@"
+exec /usr/bin/env python3 -m proj.cli "$@"
