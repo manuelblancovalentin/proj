@@ -8,7 +8,8 @@ proj \- manage project development environments with Lmod
 .SH DESCRIPTION
 .B proj
 is a metadata-driven project environment manager for Linux with Zsh or Bash.
-It coordinates Lmod modules, optional micromamba environments, project
+It coordinates Lmod modules, optional micromamba, conda, or mamba
+environments, project
 variables, paths, aliases, and lifecycle hooks.
 It does not replace Git, Lmod, or Python environment management.
 .PP
@@ -45,7 +46,7 @@ environment shadows a shared one with the same name. Invalid documents are
 reported and skipped.
 .TP
 .BI "proj activate " name
-Load the generated project Lmod module, activate the configured micromamba
+Load the generated project Lmod module, activate the configured Python
 environment, change to the project root, and run startup hooks.
 This command requires the shell integration. Activating an environment owned
 by someone else prints a notice: its hooks and aliases run as you.
@@ -57,7 +58,7 @@ Reverse the activation performed in the current shell.
 Print the active project name. Returns nonzero when none is active.
 .TP
 .B proj status
-Display the active project and report module or micromamba state drift.
+Display the active project and report module or Python environment drift.
 .TP
 .BR "proj info " "[--env " name "]"
 Render effective project metadata. With no option, select the active project
@@ -70,15 +71,21 @@ the active project is selected. Values use TOML syntax; unquoted text is
 treated as a string. Environment-affecting changes take effect after
 reactivation.
 .TP
-.BR "proj set-python-env " "[--env " name "] " environment
-Validate and link an existing micromamba environment, by name or by absolute
-prefix path. A shared environment records the prefix so every member activates
+.BR "proj set-python-env " "[--env " name "] [--manager " manager "] " environment
+Validate and link an existing environment of
+.BR micromamba ,
+.BR conda ,
+or
+.BR mamba ,
+by name or by absolute prefix path. The manager defaults to the project's,
+then to the configured
+.BR python_manager . A shared environment records the prefix so every member activates
 the same Python environment.
 .B proj
 does not create the Python environment.
 .TP
-.B proj python-env list
-List environments reported by micromamba.
+.BR "proj python-env list " "[--manager " manager ]
+List environments reported by the default or named manager.
 .TP
 .BR "proj module " "{list|add|remove} " category " [" module "]"
 Manage module dependencies. Categories are
@@ -98,7 +105,7 @@ List generated Lmod project modules and whether each cache entry is current.
 Show validated metadata and the effective generated environment.
 .TP
 .B proj doctor
-Check shell integration, Lmod, micromamba, site configuration, the shared
+Check shell integration, Lmod, the Python manager, site configuration, the shared
 registry, metadata, and writable cache state.
 .TP
 .BR "proj init " "[--shell zsh|bash] [--rc " file "] [--reverse]"
@@ -154,8 +161,9 @@ Managed project metadata.
 Site configuration written by the installer:
 .BR registry ,
 .BR shared_registry ,
+.BR group ,
 and
-.BR group .
+.BR python_manager .
 .TP
 .I ~/.config/proj/config.toml
 Optional user configuration; overrides site keys.
@@ -183,6 +191,9 @@ Override the site configuration file.
 .BR PROJ_SHARED_REGISTRY ", " PROJ_GROUP
 Override the shared registry and its group.
 .TP
+.B PROJ_PYTHON_MANAGER
+Override the default Python manager.
+.TP
 .B PROJ_PROJECT_ROOTS
 Colon-separated additional metadata roots.
 .TP
@@ -201,7 +212,7 @@ completion directory to
 and supports both earlier and later
 .B compinit
 ordering. Commands, project names, configuration keys, module categories, and
-micromamba environments are completed. Metadata discovery is deferred until
+Python environments are completed. Metadata discovery is deferred until
 completion is requested.
 .PP
 For module changes, completion proceeds from action to category to module.
@@ -216,7 +227,7 @@ universal category taxonomy.
 Lmod remains authoritative for environment mutation and uses the
 .B project
 family to enforce one active project environment.
-Micromamba remains authoritative for Python environments.
+The project's Python manager remains authoritative for Python environments.
 Task metadata may be displayed, but
 .B proj run
 is not implemented.
@@ -236,4 +247,5 @@ unsafe state.
 .BR zsh (1),
 .BR bash (1),
 .BR module (1),
-.BR micromamba (1)
+.BR micromamba (1),
+.BR conda (1)

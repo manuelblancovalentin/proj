@@ -10,7 +10,7 @@ _proj_python_environments() {
   local -a environments
   environments=(${(f)"$(_proj_cli python-env list 2>/dev/null)"})
   (( ${#environments} )) &&
-    _describe 'micromamba environment' environments
+    _describe 'Python environment' environments
 }
 
 _proj_available_modules() {
@@ -45,7 +45,7 @@ commands=(
   'status:Show active project state'
   'info:Show project environment metadata'
   'config:Read or write project metadata'
-  'set-python-env:Link a micromamba environment'
+  'set-python-env:Link a conda-family Python environment'
   'python-env:Inspect Python environments'
   'module:Manage Lmod dependencies'
   'env:Inspect generated environments'
@@ -69,7 +69,7 @@ env_actions=(
   'list:List generated environments'
   'show:Show an effective environment'
 )
-python_actions=('list:List micromamba environments')
+python_actions=('list:List Python environments')
 
 # Direct positional dispatch is intentionally used instead of a nested
 # _arguments state machine. It mirrors argparse exactly and remains predictable
@@ -81,6 +81,10 @@ fi
 
 if [[ ${words[CURRENT-1]-} == --env || ${words[CURRENT-1]-} == --project ]]; then
   _proj_project_names
+  return
+fi
+if [[ ${words[CURRENT-1]-} == --manager ]]; then
+  _values 'Python environment manager' micromamba conda mamba
   return
 fi
 
@@ -116,10 +120,18 @@ case $words[2] in
     fi
     ;;
   set-python-env)
-    (( CURRENT == 3 )) && _proj_python_environments
+    if (( CURRENT == 3 )); then
+      _proj_python_environments
+    else
+      _values 'option' --env --manager
+    fi
     ;;
   python-env)
-    (( CURRENT == 3 )) && _describe 'Python environment action' python_actions
+    if (( CURRENT == 3 )); then
+      _describe 'Python environment action' python_actions
+    else
+      _values 'option' --manager
+    fi
     ;;
   module)
     if (( CURRENT == 3 )); then

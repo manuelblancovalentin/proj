@@ -24,6 +24,7 @@ init=
 shell_name=
 system_init=
 install_deps=
+python_manager=
 batch=0
 tmp=
 stage=
@@ -44,6 +45,9 @@ choice is asked interactively with a default shown in brackets.
   --group NAME            group for shared mode (default: proj)
   --registry DIR          private environment registry (default: ~/.proj/envs)
   --shared-registry DIR   shared environment registry (default: PREFIX/envs)
+  --python-manager NAME   default Python environment manager: micromamba,
+                          conda, or mamba (default: the first one found);
+                          on an existing installation, updates the setting
   --shell LIST            shells to initialize: zsh, bash, or zsh,bash
                           (default: ask for each installed shell, suggesting
                           yes for the current and login shells)
@@ -189,6 +193,7 @@ while [ $# -gt 0 ]; do
     --system-init) system_init=yes ;;
     --no-system-init) system_init=no ;;
     --install-deps) install_deps=yes ;;
+    --python-manager) python_manager=${2?--python-manager needs a name}; shift ;;
     --no-install-deps) install_deps=no ;;
     -y|--yes) batch=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -297,8 +302,28 @@ if ! lmod_present; then
   fi
 fi
 
-if ! command -v micromamba >/dev/null 2>&1 && [ -z "${MAMBA_EXE-}" ]; then
-  say "micromamba was not found (optional; needed only for Python environments)."
+case $python_manager in
+  ''|micromamba|conda|mamba) ;;
+  *) die "--python-manager must be micromamba, conda, or mamba, not '$python_manager'" ;;
+esac
+
+# The first conda-family manager found here, in order of preference.
+detect_python_manager() {
+  if command -v micromamba >/dev/null 2>&1; then
+    printf 'micromamba\n'
+  elif [ -n "${CONDA_EXE-}" ] || command -v conda >/dev/null 2>&1; then
+    printf 'conda\n'
+  elif command -v mamba >/dev/null 2>&1; then
+    printf 'mamba\n'
+  else
+    return 1
+  fi
+}
+
+detected_manager=$(detect_python_manager) || detected_manager=
+if [ -z "$detected_manager" ] && [ -z "$python_manager" ]; then
+  say "No micromamba, conda, or mamba was found (optional; needed only for Python environments)."
+  is_root && note "sudo hides your own PATH; an existing conda can be chosen below."
   if is_root; then
     note "Each user can install it with: \"\${SHELL}\" <(curl -L micro.mamba.pm/install.sh)"
   elif [ "$install_deps" = yes ] ||
@@ -419,6 +444,14 @@ if [ "$write_config" = 1 ]; then
   if [ "$mode" = shared ] && [ -z "$shared_registry" ]; then
     ask shared_registry 'Store shared environments in' "$prefix/envs"
   fi
+  if [ -z "$python_manager" ]; then
+    ask python_manager 'Python environment manager (micromamba/conda/mamba)' \
+      "${detected_manager:-micromamba}"
+  fi
+  case $python_manager in
+    micromamba|conda|mamba) ;;
+    *) die "the Python environment manager must be micromamba, conda, or mamba" ;;
+  esac
 fi
 
 # --- Files ------------------------------------------------------------------
@@ -449,8 +482,16 @@ if [ "$write_config" = 1 ]; then
       say "shared_registry = $(toml_string "$(expand_home "$shared_registry")")"
       say "group = $(toml_string "$group")"
     fi
+    say "python_manager = $(toml_string "$python_manager")"
   } >"$config_file"
   chmod 644 "$config_file"
+elif [ -n "$python_manager" ]; then
+  # An explicit choice on upgrade replaces only that key.
+  grep -v '^python_manager = ' "$config_file" >"$config_file.new" || :
+  say "python_manager = $(toml_string "$python_manager")" >>"$config_file.new"
+  chmod 644 "$config_file.new"
+  mv "$config_file.new" "$config_file"
+  note "set python_manager = \"$python_manager\" in $config_file"
 fi
 if [ "$python" = /usr/bin/python3 ]; then
   rm -f "$prefix/etc/python"

@@ -75,9 +75,10 @@ _proj_log_error() {
 
 # Install the short spelling after startup files have initialized micromamba.
 # An earlier alias breaks parsing of micromamba's generated dormant mamba()
-# branch even when the executable itself is named micromamba.
+# branch even when the executable itself is named micromamba. A real mamba
+# (alias, function, or command, as Miniforge provides) is never shadowed.
 _proj_setup_mamba_alias() {
-  if ! alias mamba >/dev/null 2>&1 && ! _proj_is_function mamba &&
+  if ! command -v mamba >/dev/null 2>&1 &&
      { _proj_is_function micromamba || command -v micromamba >/dev/null 2>&1; }; then
     alias mamba=micromamba
   fi
@@ -94,6 +95,20 @@ _proj_clear_shell_state() {
   unset PROJ_PREVIOUS_PWD PROJ_MAMBA_SHLVL_BEFORE
 }
 
+# Choose the shell function that activates environments for a manager
+# (micromamba, conda, or mamba) and store it in _proj_python_command. mamba 2
+# activates only after `mamba shell init`; without it, conda's function manages
+# the same environments.
+_proj_select_python_command() {
+  if _proj_is_function "$1"; then
+    _proj_python_command=$1
+  elif [ "$1" = mamba ] && _proj_is_function conda; then
+    _proj_python_command=conda
+  else
+    return 1
+  fi
+}
+
 # Environments are recorded by name or, for shared projects, by prefix path.
 _proj_mamba_active() {
   case $1 in
@@ -104,9 +119,10 @@ _proj_mamba_active() {
 
 _proj_rollback_activation() {
   local project_name=$1 module_name=$2 module_path=$3 mamba_env=$4
+  local python_manager=${5:-micromamba}
   if [ -n "$mamba_env" ] && _proj_mamba_active "$mamba_env" &&
-     _proj_is_function micromamba; then
-    micromamba deactivate >/dev/null 2>&1
+     _proj_select_python_command "$python_manager"; then
+    "$_proj_python_command" deactivate >/dev/null 2>&1
   fi
   module unload "$module_name" >/dev/null 2>&1
   module unuse "$module_path" >/dev/null 2>&1
@@ -118,6 +134,7 @@ _proj_activate() {
   [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
   local project_name=$1 project_root=$2 module_name=$3 module_path=$4
   local mamba_env=$5 metadata=$6 change_directory=$7 run_hooks=$8
+  local python_manager=${9:-micromamba}
   local previous_pwd=$PWD
   local previous_shlvl=${CONDA_SHLVL:-0}
 
@@ -141,29 +158,30 @@ _proj_activate() {
   export PROJ_MAMBA_SHLVL_BEFORE=$previous_shlvl
 
   if [ -n "$mamba_env" ]; then
-    if ! _proj_is_function micromamba; then
-      _proj_log_error 'Micromamba shell integration is unavailable'
+    if ! _proj_select_python_command "$python_manager"; then
+      _proj_log_error \
+        "$python_manager shell integration is unavailable; initialize it in your startup file"
       _proj_rollback_activation \
-        "$project_name" "$module_name" "$module_path" "$mamba_env"
+        "$project_name" "$module_name" "$module_path" "$mamba_env" "$python_manager"
       return 2
     fi
-    if ! micromamba activate "$mamba_env"; then
+    if ! "$_proj_python_command" activate "$mamba_env"; then
       _proj_rollback_activation \
-        "$project_name" "$module_name" "$module_path" "$mamba_env"
+        "$project_name" "$module_name" "$module_path" "$mamba_env" "$python_manager"
       return 2
     fi
   fi
 
   if [ "$change_directory" = 1 ] && ! _proj_cd "$project_root"; then
     _proj_rollback_activation \
-      "$project_name" "$module_name" "$module_path" "$mamba_env"
+      "$project_name" "$module_name" "$module_path" "$mamba_env" "$python_manager"
     return 2
   fi
 
   if [ "$run_hooks" = 1 ] && ! _proj_cli _hook startup "$project_name"; then
     _proj_cli _hook shutdown "$project_name" >/dev/null 2>&1
     _proj_rollback_activation \
-      "$project_name" "$module_name" "$module_path" "$mamba_env"
+      "$project_name" "$module_name" "$module_path" "$mamba_env" "$python_manager"
     return 2
   fi
 
@@ -174,6 +192,7 @@ _proj_deactivate() {
   [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
   local project_name=$1 module_name=$2 module_path=$3
   local mamba_env=$4 metadata=$5 change_directory=$6
+  local python_manager=${7:-micromamba}
   local previous_pwd=${PROJ_PREVIOUS_PWD-}
   local expected_shlvl=${PROJ_MAMBA_SHLVL_BEFORE:-0}
 
@@ -185,14 +204,18 @@ _proj_deactivate() {
      { ! _proj_mamba_active "$mamba_env" ||
        [ "${CONDA_SHLVL:-0}" -ne $(( expected_shlvl + 1 )) ]; }; then
     _proj_log_error \
-      'Micromamba state has drifted; refusing unsafe deactivation'
+      'Python environment state has drifted; refusing unsafe deactivation'
+    return 2
+  fi
+  if [ -n "$mamba_env" ] && ! _proj_select_python_command "$python_manager"; then
+    _proj_log_error "$python_manager shell integration is unavailable"
     return 2
   fi
 
   _proj_cli _hook shutdown "$project_name" || return
 
-  if [ -n "$mamba_env" ] && ! micromamba deactivate; then
-    _proj_log_error 'Micromamba deactivation failed'
+  if [ -n "$mamba_env" ] && ! "$_proj_python_command" deactivate; then
+    _proj_log_error "$python_manager deactivation failed"
     return 2
   fi
   if ! module unload "$module_name"; then

@@ -6,14 +6,13 @@ import json
 import os
 import re
 import shlex
-import shutil
 import stat
 import subprocess
 import sys
 from pathlib import Path
 
 from . import __version__
-from . import access
+from . import access, python_envs
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -26,7 +25,14 @@ from .editor import (
     write_document,
 )
 from .errors import ProjError
-from .metadata import MODULE_CATEGORIES, NAME_RE, SHELLS, Project, load_project
+from .metadata import (
+    MODULE_CATEGORIES,
+    NAME_RE,
+    PYTHON_MANAGERS,
+    SHELLS,
+    Project,
+    load_project,
+)
 from .modulefile import materialize, render
 from .shell import activation_code, deactivation_code
 
@@ -102,7 +108,7 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         )
     else:
         metadata_path = config.registry / args.name / "project.toml"
-    create_document(metadata_path, args.name, root, mode)
+    create_document(metadata_path, args.name, root, mode, config.python_manager)
     # Validate the generated document before reporting success.
     load_project(metadata_path)
     print(f"Environment {args.name!r} successfully created.")
@@ -128,7 +134,7 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
         ("Root", str(project.root)),
         ("Metadata", str(project.metadata_path)),
         ("Shell", project.shell),
-        ("Python manager", project.python_manager or "not configured"),
+        ("Python manager", python_envs.manager_for(config, project)),
         ("Python environment", project.python_environment or "not configured"),
     ]
     for category in MODULE_CATEGORIES:
@@ -215,36 +221,11 @@ def cmd_config(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
-def _micromamba_environments() -> dict[str, Path]:
-    executable = os.environ.get("MAMBA_EXE") or shutil.which("micromamba")
-    if not executable:
-        raise ProjError("micromamba is not available")
-    completed = subprocess.run(
-        [executable, "env", "list", "--json"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if completed.returncode:
-        raise ProjError(completed.stderr.strip() or "cannot list micromamba environments")
-    try:
-        paths = [Path(path) for path in json.loads(completed.stdout).get("envs", [])]
-    except json.JSONDecodeError as exc:
-        raise ProjError("micromamba returned invalid JSON") from exc
-    # The root prefix is listed by path, but micromamba activates it as `base`.
-    root_prefix = os.environ.get("MAMBA_ROOT_PREFIX")
-    roots = {Path(root_prefix)} if root_prefix else set()
-    roots.update(path.parent.parent for path in paths if path.parent.name == "envs")
-    return {
-        ("base" if path in roots else path.name): path
-        for path in sorted(paths)
-    }
-
-
-def cmd_python_env_list(_config: Config, _args: argparse.Namespace) -> int:
-    environments = _micromamba_environments()
+def cmd_python_env_list(config: Config, args: argparse.Namespace) -> int:
+    manager = args.manager or python_envs.manager_for(config)
+    environments = python_envs.environments(manager)
     if not environments:
-        print("No micromamba environments found.")
+        print(f"No {manager} environments found.")
         return 0
     for name in sorted(environments):
         print(name)
@@ -253,30 +234,31 @@ def cmd_python_env_list(_config: Config, _args: argparse.Namespace) -> int:
 
 def cmd_set_python_env(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
+    manager = args.manager or python_envs.manager_for(config, project)
     if os.path.isabs(args.environment):
         prefix = Path(args.environment).resolve()
         if not (prefix / "conda-meta").is_dir():
-            raise ProjError(f"not a micromamba environment prefix: {prefix}")
+            raise ProjError(f"not a {manager} environment prefix: {prefix}")
         environment = str(prefix)
     else:
-        available = _micromamba_environments()
+        available = python_envs.environments(manager)
         if args.environment not in available:
             raise ProjError(
-                f"unknown micromamba environment {args.environment!r}; "
-                "run `proj python-env list`"
+                f"unknown {manager} environment {args.environment!r}; "
+                f"run `proj python-env list --manager {manager}`"
             )
-        # Names resolve against each user's own micromamba root, so a shared
+        # Names resolve against each user's own root prefix, so a shared
         # environment records the prefix that every member activates.
         environment = args.environment
         if access.scope(config, project) == "shared":
             environment = str(available[args.environment])
 
     def mutate(data):
-        set_dotted(data, "python.manager", "micromamba")
+        set_dotted(data, "python.manager", manager)
         set_dotted(data, "python.environment", environment)
 
     _update_document(project, mutate)
-    print(f"Linked micromamba environment {environment!r} to {project.name}.")
+    print(f"Linked {manager} environment {environment!r} to {project.name}.")
     print(f"Metadata updated at {project.metadata_path}")
     return 0
 
@@ -346,16 +328,22 @@ def cmd_status(config: Config, _args: argparse.Namespace) -> int:
         drift.append("missing modules: " + ", ".join(sorted(missing)))
     if project.python_environment and current_env != project.python_environment:
         drift.append(
-            f"micromamba environment is {current_env or 'inactive'}, "
+            f"Python environment is {current_env or 'inactive'}, "
             f"expected {project.python_environment}"
         )
     print(f"Project:      {project.name}")
     print(f"Root:         {project.root}")
     print(f"Metadata:     {project.metadata_path}")
     print(f"Lmod module:  {project.module_name}")
-    print(f"Micromamba:   {project.python_environment or 'not configured'}")
+    print(f"Python env:   {_python_label(config, project)}")
     print(f"State:        {'drift: ' + '; '.join(drift) if drift else 'consistent'}")
     return 2 if drift else 0
+
+
+def _python_label(config: Config, project: Project) -> str:
+    if not project.python_environment:
+        return "not configured"
+    return f"{project.python_environment} ({python_envs.manager_for(config, project)})"
 
 
 def _module_state(config: Config, project: Project) -> str:
@@ -386,7 +374,7 @@ def cmd_env_show(config: Config, args: argparse.Namespace) -> int:
     print(f"Metadata:      {project.metadata_path}")
     print(f"Shell:         {project.shell}")
     print(f"Modulefile:    {output} ({'generated' if changed else 'current'})")
-    print(f"Micromamba:    {project.python_environment or 'not configured'}")
+    print(f"Python env:    {_python_label(config, project)}")
     for category in MODULE_CATEGORIES:
         values = ", ".join(project.modules.get(category, ())) or "-"
         print(f"{category.title():<14}{values}")
@@ -600,9 +588,10 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser.add_argument("assignment")
     config_parser.add_argument("value", nargs="?")
     set_python = sub.add_parser(
-        "set-python-env", help="link an existing micromamba environment"
+        "set-python-env", help="link an existing conda-family Python environment"
     )
     set_python.add_argument("environment")
+    set_python.add_argument("--manager", choices=PYTHON_MANAGERS)
     set_python.add_argument(
         "--env", "--project", dest="project", metavar="NAME"
     )
@@ -612,7 +601,8 @@ def build_parser() -> argparse.ArgumentParser:
     python_env_sub = python_env.add_subparsers(
         dest="python_env_command", required=True
     )
-    python_env_sub.add_parser("list")
+    python_env_list = python_env_sub.add_parser("list")
+    python_env_list.add_argument("--manager", choices=PYTHON_MANAGERS)
     module = sub.add_parser("module", help="manage project module dependencies")
     module.add_argument("module_action", choices=("list", "add", "remove"))
     module.add_argument("category", choices=MODULE_CATEGORIES)

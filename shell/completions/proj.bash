@@ -1,5 +1,5 @@
 # Native Bash completion for proj. Candidates that need discovery (projects,
-# micromamba environments, Lmod modules) are computed only when Tab is pressed.
+# Python environments, Lmod modules) are computed only when Tab is pressed.
 
 _proj_complete_available_modules() {
   local line
@@ -27,6 +27,8 @@ _proj_complete() {
     candidates=$(_proj_cli _complete projects 2>/dev/null)
   elif [[ $command == init && $prev == --shell ]]; then
     candidates=$'zsh\nbash'
+  elif [[ $prev == --manager ]]; then
+    candidates=$'micromamba\nconda\nmamba'
   elif [[ $command == create && $prev == --root ]] ||
        [[ $command == init && $prev == --rc ]]; then
     compopt -o default 2>/dev/null
@@ -50,10 +52,10 @@ _proj_complete() {
         ;;
       set-python-env)
         candidates=$(_proj_cli python-env list 2>/dev/null)
-        candidates+=$'\n--env'
+        candidates+=$'\n--env\n--manager'
         ;;
       python-env)
-        (( COMP_CWORD == 2 )) && candidates=list
+        if (( COMP_CWORD == 2 )); then candidates=list; else candidates=--manager; fi
         ;;
       module)
         case $COMP_CWORD in

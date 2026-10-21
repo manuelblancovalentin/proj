@@ -18,6 +18,7 @@ ENVIRONMENT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VARIABLE_RE = re.compile(r"\$\{([^}]+)\}")
 MODULE_CATEGORIES = ("project", "toolchain", "application", "compiler")
 SHELLS = ("zsh", "bash")
+PYTHON_MANAGERS = ("micromamba", "conda", "mamba")
 
 
 @dataclass(frozen=True)
@@ -153,10 +154,12 @@ def load_project(metadata_path: Path) -> Project:
     python_data = _table(data, "python", metadata_path)
     python_manager = _string(python_data, "manager", metadata_path)
     python_environment = _string(python_data, "environment", metadata_path)
-    if python_environment and not python_manager:
-        python_manager = "micromamba"
-    if python_manager and python_manager != "micromamba":
-        raise MetadataError(f"{metadata_path}: only micromamba is supported")
+    # Without a manager, the environment uses the configured default manager.
+    if python_manager and python_manager not in PYTHON_MANAGERS:
+        raise MetadataError(
+            f"{metadata_path}: python.manager must be one of: "
+            + ", ".join(PYTHON_MANAGERS)
+        )
 
     modules_data = _table(data, "modules", metadata_path)
     unknown_categories = set(modules_data) - set(MODULE_CATEGORIES)

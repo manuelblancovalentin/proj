@@ -200,6 +200,18 @@ class SharingTests(unittest.TestCase):
         self.assertEqual(config.group, "staff")
         self.assertEqual(config.project_roots[:2], (self.base / "mine", self.shared))
 
+    def test_python_manager_is_configurable_and_validated(self):
+        self.assertEqual(load_config().python_manager, "micromamba")
+        Path(self.environment["PROJ_CONFIG"]).write_text(
+            'schema = 1\npython_manager = "conda"\n'
+        )
+        self.assertEqual(load_config().python_manager, "conda")
+        Path(self.environment["PROJ_CONFIG"]).write_text(
+            'schema = 1\npython_manager = "pip"\n'
+        )
+        with self.assertRaises(ProjError):
+            load_config()
+
     def test_unknown_configuration_keys_are_rejected(self):
         self.site.write_text("schema = 1\nregistyr = '/tmp'\n")
         with self.assertRaises(ProjError):

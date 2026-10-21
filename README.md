@@ -1,7 +1,8 @@
 # proj
 
 `proj` is a small, metadata-driven project environment manager for Linux with
-Zsh or Bash. It coordinates Lmod and optional micromamba environments; it does
+Zsh or Bash. It coordinates Lmod and optional conda-family Python environments
+(micromamba, conda, or mamba); it does
 not replace Git, Lmod, or Python environment management.
 
 ## Quick start
@@ -23,7 +24,8 @@ proj module add compiler gcc/14
 ```
 
 It prints that path after creation. The generated file is immediately valid:
-only the schema, name, root, and default `python.manager = "micromamba"` are
+only the schema, name, root, and the configured `python.manager` (default
+`micromamba`) are
 active. Optional fields and examples are present but commented out.
 
 Configuration defaults to the active project:
@@ -55,15 +57,25 @@ all four module categories, variables, aliases, hooks, and future task
 definitions. `--project` remains accepted as a compatibility alias, but new
 documentation and completion consistently use `--env`.
 
-List and link existing micromamba environments:
+List and link existing Python environments:
 
 ```zsh
 proj python-env list
 proj set-python-env atlas
+proj set-python-env atlas --manager conda
 ```
 
 The second command validates that the environment exists. `proj` never creates
-or replaces micromamba environments. Use `mamba create -n atlas ...` for that.
+or replaces Python environments; use `micromamba create`, `conda create`, or
+`mamba create` for that.
+
+The Python manager is per project (`python.manager`): `micromamba`, `conda`,
+or `mamba`. New projects, `proj python-env list`, and `set-python-env` use the
+configured default (`python_manager` in the configuration, for example
+`"conda"` on a host with a shared Miniforge) unless `--manager` is given.
+Activation calls that manager's shell function; a `mamba` without
+`mamba shell init` falls back to `conda`, which manages the same
+environments.
 
 ## Installation
 
@@ -74,7 +86,8 @@ Requirements:
 - Python 3.11+, or 3.9+ with `tomli`. `/usr/bin/python3` is preferred; if it
   cannot read TOML, the installer records the `python3` on `PATH` in
   `PREFIX/etc/python` (`PROJ_PYTHON` overrides both)
-- micromamba when a Python environment is configured
+- micromamba, conda, or mamba, with its shell integration initialized, when a
+  project declares a Python environment
 
 Run the installer from a checkout, or pipe it from GitHub:
 
@@ -98,9 +111,14 @@ accepts the defaults and `--help` lists the flags for unattended installs:
   zsh,bash` picks explicitly. Each yes runs `proj init`, which adds a marked
   block to `~/.zshrc` or `~/.bashrc`. As root it can instead add the block to
   the system-wide `zshrc`/`bash.bashrc` for every user.
+- **Python manager**: the default for new projects; the first of micromamba,
+  conda, and mamba found is suggested. `sudo` hides your `PATH`, so name an
+  existing conda explicitly (`--python-manager conda`). Rerunning with
+  `--python-manager` on an existing installation updates just that setting.
 - **Dependencies**: if Lmod is missing it offers the distribution package
-  (`apt-get install lmod`, `dnf install Lmod`), which needs sudo. If
-  micromamba is missing it offers micromamba's official per-user installer.
+  (`apt-get install lmod`, `dnf install Lmod`), which needs sudo. If no
+  conda-family manager exists it offers micromamba's official per-user
+  installer.
 
 Choices are written to `PREFIX/etc/config.toml`. Rerunning the installer on
 the same prefix upgrades the code and keeps that configuration. To uninstall,
@@ -113,11 +131,12 @@ the checkout (`/tools/bin` for `/tools/proj`), and the startup file sources
 
 The adapter adds the command, manual, and TLDR directories to their search
 paths exactly once, defines the parent-shell `proj` function, and provides
-`mamba` as a shorter alias for `micromamba` after shell startup completes.
-Deferring that alias lets micromamba's generated shell hook parse safely.
+`mamba` as a shorter alias for `micromamba` after shell startup completes,
+unless a real `mamba` exists. Deferring that alias lets micromamba's generated
+shell hook parse safely.
 
 Both adapters register native completion for commands, configuration keys,
-module categories, micromamba environments, and registered project names.
+module categories, Python environments, and registered project names.
 Discovery happens only after Tab is pressed, never during shell startup.
 
 ## Sharing environments
@@ -135,7 +154,7 @@ proj list                                     # SCOPE and OWNER columns
 
 Private environments keep working alongside shared ones, and a private
 environment shadows a shared one of the same name. In a shared environment,
-`proj set-python-env` records the micromamba prefix path instead of the name,
+`proj set-python-env` records the environment's prefix path instead of the name,
 so every member activates the same Python environment; that prefix and the
 project root must be readable by the group.
 
@@ -206,6 +225,7 @@ schema = 1
 registry = "~/.proj/envs"            # private registry; ~ is per user
 shared_registry = "/opt/proj/envs"   # shared mode only
 group = "proj"                       # required with shared_registry
+python_manager = "micromamba"        # or "conda" / "mamba"
 project_roots = ["/shared/project-environments"]
 module_cache = "~/.cache/proj/modulefiles"
 
@@ -219,6 +239,7 @@ Discovery order is also precedence: private registry, shared registry, then
 
 Environment overrides for testing and automation include `PROJ_HOME`,
 `PROJ_CONFIG`, `PROJ_SITE_CONFIG`, `PROJ_SHARED_REGISTRY`, `PROJ_GROUP`,
+`PROJ_PYTHON_MANAGER`,
 `PROJ_PROJECT_ROOTS` (colon-separated), `PROJ_CACHE_HOME`, and
 `PROJ_GLOBAL_BIN`, `PROJ_GLOBAL_MAN`, and `PROJ_GLOBAL_TLDR`.
 

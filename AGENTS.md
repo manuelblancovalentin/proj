@@ -4,11 +4,12 @@
 
 `proj` is a project environment manager for Linux and interactive Zsh or Bash.
 It is not a Git wrapper and does not implement Python environments. It coordinates
-project metadata with Lmod and, when requested by metadata, micromamba.
+project metadata with Lmod and, when requested by metadata, a conda-family
+Python manager (micromamba, conda, or mamba).
 
 Lmod is mandatory and remains authoritative for module dependencies,
 environment variables, paths, aliases, conflict handling, and the one-active-
-project rule. Micromamba remains authoritative for Python environment
+project rule. The configured Python manager remains authoritative for Python environment
 activation.
 
 ## Invariants
@@ -63,7 +64,7 @@ activation.
 - Hooks run as child processes and cannot mutate the parent shell.
 - Task definitions are validated, but `proj run` is not implemented.
 - Shell initialization performs no project scans and starts no subprocesses.
-- Zsh completion may discover projects and micromamba environments only when
+- Completion may discover projects and Python environments only when
   the user requests completion, never while sourcing the adapter.
 - Module completion follows action, category, then module. Add candidates come
   from the live Lmod namespace; remove candidates come from selected-project
@@ -73,6 +74,7 @@ activation.
   Unicode fallback; proj must not require dots to function.
 - Install the `mamba` convenience alias from a first-prompt hook, not while
   sourcing. An early alias breaks parsing of micromamba's generated Zsh hook.
+  Never define it when a real `mamba` alias, function, or command exists.
 
 ## Architecture
 

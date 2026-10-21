@@ -5,7 +5,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import access
+from . import access, python_envs
 from .config import Config
 from .discovery import scan
 from .errors import ProjError
@@ -34,7 +34,8 @@ def run_checks(config: Config) -> list[Check]:
         or shutil.which("modulecmd")
     )
     module_function = os.environ.get("PROJ_MODULE_FUNCTION") == "1"
-    mamba = shutil.which("micromamba") or os.environ.get("MAMBA_EXE")
+    python_manager = python_envs.manager_for(config)
+    python_program = python_envs.executable(python_manager)
     shell_adapter = os.environ.get("PROJ_SHELL_INTEGRATION", "")
     module_detail = "available"
     if not module_function:
@@ -60,7 +61,11 @@ def run_checks(config: Config) -> list[Check]:
             module_function,
             module_detail,
         ),
-        Check("micromamba", bool(mamba), mamba or "not installed"),
+        Check(
+            "python manager",
+            bool(python_program),
+            f"{python_manager}: {python_program or 'not installed'}",
+        ),
         Check(
             "module cache",
             _writable_parent(config.module_cache),

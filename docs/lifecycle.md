@@ -7,12 +7,12 @@
 3. Confirm the shell's `module` function exists.
 4. `module use` the managed module cache.
 5. `module load project/<name>`.
-6. Activate the configured micromamba environment.
+6. Activate the configured Python environment with its manager.
 7. Change to the project root when configured.
 8. Run startup hooks.
 
 Failure after mutation unloads the project module, deactivates the newly created
-micromamba level, removes the module path, restores the directory, and clears
+Python environment level, removes the module path, restores the directory, and clears
 adapter state.
 
 Activating while another project is active fails. Lmod's `family("project")`
@@ -20,9 +20,9 @@ provides the underlying exclusivity.
 
 ## Deactivation
 
-1. Verify Lmod and micromamba state have not drifted.
+1. Verify Lmod and Python environment state have not drifted.
 2. Run shutdown hooks.
-3. Deactivate exactly the micromamba level created by proj.
+3. Deactivate exactly the Python environment level created by proj.
 4. Unload the project module.
 5. Remove the managed module path.
 6. Restore the previous directory.

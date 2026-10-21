@@ -34,14 +34,18 @@ administrator must run `usermod -aG <group> <user>`, after which you log in
 again. "belongs to <user>" means the environment is owner-only; ask its owner,
 or create a group-writable environment.
 
-## Micromamba integration unavailable
+## Python manager integration unavailable
 
-Initialize the micromamba Zsh hook before activating a project that declares a
-Python environment. The convenience alias `mamba` does not replace the hook.
+Initialize the manager's shell hook before activating a project that declares
+a Python environment: `micromamba shell init`, `conda init zsh` (or `bash`),
+or `mamba shell init`. A `mamba` that was never initialized works when `conda`
+is. The convenience alias `mamba` does not replace the hook. `proj doctor`
+shows the default manager; `proj info` shows the one a project uses.
 
 ## State drift
 
-`proj status` reports manual changes to loaded modules or micromamba state.
+`proj status` reports manual changes to loaded modules or Python environment
+state.
 Restore the expected state before deactivation. The initial release does not
 guess or force cleanup.
 

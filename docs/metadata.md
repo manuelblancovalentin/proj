@@ -52,13 +52,14 @@ description = "Build the project"
 command = ["./scripts/build"]
 ```
 
-`project.shell` may be `zsh` or `bash`. `python.environment` is a micromamba
-environment name or an absolute prefix path; shared environments store the
+`project.shell` may be `zsh` or `bash`. `python.manager` may be `micromamba`,
+`conda`, or `mamba`; when omitted, the configured `python_manager` applies.
+`python.environment` is an environment name or an absolute prefix path; shared environments store the
 prefix so that every member resolves the same environment.
 
 Only `project.name` and `project.root` are required. Description defaults to
-the name, shell defaults to Zsh, and the managed starter enables micromamba as
-the manager without selecting an environment.
+the name, shell defaults to Zsh, and the managed starter records the
+configured Python manager without selecting an environment.
 
 Use `proj config` for ordinary changes:
 

@@ -1,6 +1,6 @@
 # proj
 
-> Manage project development environments using Lmod and optional micromamba environments.
+> Manage project development environments using Lmod and optional micromamba, conda, or mamba environments.
 > Project metadata is stored under `~/.proj/envs`.
 > More information: <https://github.com/tldr-pages/tldr>.
 
@@ -34,7 +34,7 @@
 
 `proj config {{project.description}}`
 
-- List and link an existing micromamba environment:
+- List and link an existing Python environment (micromamba, conda, or mamba):
 
 `proj python-env list`
 

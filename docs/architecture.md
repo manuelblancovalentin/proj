@@ -5,7 +5,8 @@
 The shell adapters own parent-shell mutation. The Python control plane owns
 discovery, validation, planning, diagnostics, and generated modulefiles. Lmod
 owns modules, variables, paths, aliases, dependency reference counts, and the
-project-family conflict. Micromamba owns Python environment activation.
+project-family conflict. The project's conda-family manager (micromamba,
+conda, or mamba) owns Python environment activation.
 
 The adapters also own on-demand completion and lifecycle presentation.
 Completion invokes discovery only after the user requests it. Lifecycle output

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import ConfigError
+from .metadata import PYTHON_MANAGERS
 
 # The directory containing bin/, proj/, and shell/. Installers place the site
 # configuration beneath it, so no installation path is hardcoded.
@@ -19,6 +20,7 @@ CONFIG_KEYS = {
     "registry",
     "shared_registry",
     "group",
+    "python_manager",
     "project_roots",
     "module_cache",
     "behavior",
@@ -35,6 +37,7 @@ class Config:
     shared_registry: Path | None = None
     group: str | None = None
     site_config: Path | None = None
+    python_manager: str = "micromamba"
     change_directory: bool = True
     run_startup_hooks: bool = True
 
@@ -105,6 +108,14 @@ def load_config() -> Config:
     if shared_registry and not group:
         raise ConfigError(f"{source}: shared_registry requires group")
 
+    python_manager = os.environ.get("PROJ_PYTHON_MANAGER") or _optional_string(
+        data, "python_manager", source
+    ) or "micromamba"
+    if python_manager not in PYTHON_MANAGERS:
+        raise ConfigError(
+            f"{source}: python_manager must be one of: " + ", ".join(PYTHON_MANAGERS)
+        )
+
     env_roots = os.environ.get("PROJ_PROJECT_ROOTS")
     raw_roots = env_roots.split(os.pathsep) if env_roots else data.get("project_roots", [])
     if not isinstance(raw_roots, list) or not all(
@@ -131,6 +142,7 @@ def load_config() -> Config:
         shared_registry=shared_registry,
         group=group,
         site_config=site_file if site_file.is_file() else None,
+        python_manager=python_manager,
         change_directory=bool(behavior.get("change_directory", True)),
         run_startup_hooks=bool(behavior.get("run_startup_hooks", True)),
     )

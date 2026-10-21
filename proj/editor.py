@@ -160,14 +160,18 @@ def write_document(path: Path, data: dict[str, Any], mode: int | None = None) ->
 
 
 def create_document(
-    path: Path, name: str, root: Path, mode: int | None = None
+    path: Path,
+    name: str,
+    root: Path,
+    mode: int | None = None,
+    python_manager: str = "micromamba",
 ) -> None:
     if path.exists():
         raise ProjError(f"environment {name!r} already exists at {path}")
     data = {
         "schema": 1,
         "project": {"name": name, "root": str(root.resolve())},
-        "python": {"manager": "micromamba"},
+        "python": {"manager": python_manager},
     }
     write_document(path, data, mode)
 

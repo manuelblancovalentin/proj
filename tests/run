@@ -279,6 +279,69 @@ PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
   ' bash "$root" "$project_root" || fail "transactional Bash lifecycle"
 pass "activation and deactivation mutate and restore the parent Bash"
 
+forge_root="$tmp/projects/forge"
+mkdir -p "$forge_root"
+cat > "$forge_root/project.toml" <<EOF
+schema = 1
+
+[project]
+name = "forge"
+root = "$forge_root"
+
+[python]
+manager = "mamba"
+environment = "ml"
+EOF
+for forge_shell in bash zsh; do
+  PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+    "$forge_shell" -f -c '
+      [ -n "${BASH_VERSION-}" ] && set +o posix
+      module() {
+        case $1 in
+          load) export PROJ_ACTIVE=forge LOADEDMODULES=$2 ;;
+          unload) unset PROJ_ACTIVE LOADEDMODULES ;;
+        esac
+      }
+      # Miniforge without `mamba shell init`: only conda is a shell function.
+      conda() {
+        case $1 in
+          activate)
+            export CONDA_DEFAULT_ENV=$2 CONDA_SHLVL=$(( ${CONDA_SHLVL:-0} + 1 )) ;;
+          deactivate)
+            unset CONDA_DEFAULT_ENV; export CONDA_SHLVL=$(( ${CONDA_SHLVL:-1} - 1 )) ;;
+        esac
+      }
+      if [ -n "${BASH_VERSION-}" ]; then . "$1/shell/init.bash"; else source "$1/shell/init.zsh"; fi
+      proj activate forge >/dev/null || exit 31
+      [ "${CONDA_DEFAULT_ENV-}" = ml ] || exit 32
+      proj deactivate >/dev/null || exit 33
+      [ -z "${CONDA_DEFAULT_ENV-}" ] && [ "${CONDA_SHLVL:-0}" = 0 ] || exit 34
+    ' "$forge_shell" "$root" || fail "$forge_shell conda-family activation"
+done
+rm -rf "$forge_root"
+
+mkdir -p "$tmp/forge/condabin" "$tmp/forge/envs/ml"
+printf '#!/bin/sh\necho %s\n' "'{\"envs\":[\"$tmp/forge\",\"$tmp/forge/envs/ml\"]}'" \
+  >"$tmp/forge/condabin/conda"
+chmod +x "$tmp/forge/condabin/conda"
+[ "$(env -u MAMBA_ROOT_PREFIX CONDA_EXE="$tmp/forge/condabin/conda" \
+  "$root/bin/proj" python-env list --manager conda | tr '\n' ' ')" = 'base ml ' ] ||
+  fail "conda environment discovery"
+PROJ_HOME="$tmp/conda-home" PROJ_PYTHON_MANAGER=conda \
+  "$root/bin/proj" create starter --root "$tmp/forge" >/dev/null || fail "conda starter"
+grep -q '^manager = "conda"$' "$tmp/conda-home/envs/starter/project.toml" ||
+  fail "configured default Python manager"
+
+mkdir -p "$tmp/real-mamba"
+printf '#!/bin/sh\n' >"$tmp/real-mamba/mamba" && chmod +x "$tmp/real-mamba/mamba"
+PATH="$tmp/real-mamba:$PATH" bash --norc --noprofile -c '
+  micromamba() { :; }
+  . "$1/shell/init.bash"
+  _proj_setup_mamba_alias
+  ! alias mamba >/dev/null 2>&1
+' bash "$root" || fail "mamba alias shadowed an installed mamba"
+pass "conda and mamba environments activate through the configured manager"
+
 failing_root="$tmp/projects/failing"
 mkdir -p "$failing_root"
 cat > "$failing_root/project.toml" <<EOF
@@ -421,6 +484,12 @@ printf 'schema = 1\nregistry = "~/custom"\n' >"$install_prefix/etc/config.toml"
 HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private \
   --prefix "$install_prefix" --no-install-deps >/dev/null 2>&1 || fail "upgrade"
 grep -q custom "$install_prefix/etc/config.toml" || fail "upgrade replaced configuration"
+HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private \
+  --prefix "$install_prefix" --python-manager conda --no-install-deps >/dev/null 2>&1 ||
+  fail "upgrade with a Python manager"
+grep -q '^python_manager = "conda"$' "$install_prefix/etc/config.toml" &&
+  grep -q custom "$install_prefix/etc/config.toml" ||
+  fail "upgrade did not set only the Python manager"
 [ "$(grep -c '>>> proj initialize >>>' "$install_home/.bashrc")" = 1 ] ||
   fail "upgrade duplicated shell initialization"
 [ ! -e "$install_home/.zshrc" ] || fail "installer initialized an unused shell"
