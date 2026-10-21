@@ -244,8 +244,9 @@ proj() {
       eval "$code"
       ;;
     info)
-      if _proj_is_function _proj_render_info && _proj_is_function panel_begin &&
-         _proj_is_function panel_row; then
+      # Any adapter or site profile may define _proj_render_info to draw the
+      # metadata (it receives the name, then label/value pairs).
+      if _proj_is_function _proj_render_info; then
         code=$(_proj_cli _info-code "${@:2}") || return
         eval "$code"
       else

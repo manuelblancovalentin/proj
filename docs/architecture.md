@@ -15,6 +15,10 @@ proj does not require dots.
 
 `shell/init.zsh` and `shell/init.bash` hold only shell-specific glue (locating
 the tool root, completion registration, the first-prompt hook, the dots panel).
+A site profile sourced after the adapter may define `_proj_render_info` to
+draw `proj info` its own way; it receives the environment name followed by
+label/value pairs. The Zsh adapter's default draws a dots panel, or the plain
+table when dots is absent; Bash prints the CLI table unless a site defines one.
 Activation, deactivation, rollback, and the `proj` function live in the
 portable `shell/core.sh`, sourced by both.
 

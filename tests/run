@@ -153,6 +153,21 @@ grep -q '^environment = "atlas"$' "$managed_metadata" ||
   fail "Python environment persisted"
 pass "create and active-project configuration workflow"
 
+# A site profile can draw `proj info` by defining _proj_render_info after the
+# adapter; the Zsh adapter falls back to a plain table without dots.
+rendered=$(PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  bash --norc --noprofile -c '
+    . "$1/shell/init.bash"
+    _proj_render_info() { printf "site:%s:%s=%s\n" "$1" "$2" "$3"; }
+    proj info --env atlas
+  ' bash "$root")
+[ "$rendered" = 'site:atlas:Description=Atlas development' ] ||
+  fail "site renderer for proj info: $rendered"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  zsh -f -c 'source "$1/shell/init.zsh"; proj info --env atlas' zsh "$root" |
+  grep -q '^Description  *Atlas development$' || fail "Zsh info fallback without dots"
+pass "proj info uses a site renderer when one is defined"
+
 project_root="$tmp/projects/demo"
 mkdir -p "$project_root"
 cat > "$project_root/project.toml" <<EOF

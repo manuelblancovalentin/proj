@@ -20,10 +20,22 @@ _proj_cd() {
 
 source "$PROJ_TOOL_ROOT/shell/core.sh"
 
+# Draw `proj info` as a dots panel, or as the CLI's plain table without dots.
+# A site profile sourced later may redefine this function.
 _proj_render_info() {
   emulate -L zsh
   local environment_name=$1
   shift
+  if (( ! $+functions[panel_begin] || ! $+functions[panel_row] )); then
+    local -i width=5 index
+    for (( index = 1; index < $#; index += 2 )); do
+      (( ${#argv[index]} > width )) && width=${#argv[index]}
+    done
+    print -r -- "Project environment: $environment_name"
+    printf "%-${width}s  %s\n" FIELD VALUE "${(l:width::-:):-}" -----
+    printf "%-${width}s  %s\n" "$@"
+    return 0
+  fi
   panel_begin
   panel_title "Project Environment · $environment_name"
   local label value styled_label styled_value

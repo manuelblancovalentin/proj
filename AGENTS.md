@@ -33,6 +33,9 @@ activation.
 - Interactive mutation goes through `shell/init.zsh` or `shell/init.bash`,
   which share `shell/core.sh`; an executable cannot mutate its parent shell.
   Keep `core.sh` portable between Bash and Zsh.
+  Site-specific presentation (for example a host's banner or table renderer)
+  belongs in that host's profile, sourced after the adapter, never in proj;
+  `_proj_render_info` is the supported hook for `proj info`.
 - `proj init` owns the marked `# >>> proj initialize >>>` block in startup
   files; it is idempotent and `--reverse` removes it.
 - Use `/usr/bin/python3` and the standard library only (falling back to
