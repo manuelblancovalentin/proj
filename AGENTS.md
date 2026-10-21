@@ -2,8 +2,8 @@
 
 ## Purpose
 
-`proj` is a project environment manager for Fedora and interactive Zsh. It is
-not a Git wrapper and does not implement Python environments. It coordinates
+`proj` is a project environment manager for Linux and interactive Zsh or Bash.
+It is not a Git wrapper and does not implement Python environments. It coordinates
 project metadata with Lmod and, when requested by metadata, micromamba.
 
 Lmod is mandatory and remains authoritative for module dependencies,
@@ -13,23 +13,42 @@ activation.
 
 ## Invariants
 
-- Canonical executable: `/tools/proj/bin/proj`.
-- Public link: `/tools/bin/proj -> ../proj/bin/proj`.
-- Canonical manual: `/tools/proj/share/man/man1/proj.1`.
-- Public manual link:
-  `/tools/share/man/man1/proj.1 -> ../../../proj/share/man/man1/proj.1`.
-- Canonical TLDR page: `/tools/proj/share/tldr/pages/common/proj.md`.
-- Public TLDR link:
+- Never hardcode an installation path. Everything is relative to the tool
+  root (the directory holding `bin/`, `proj/`, and `shell/`): the checkout, or
+  the prefix chosen in `install.sh` (default `/opt/proj`).
+- Canonical executable: `<root>/bin/proj`; manual
+  `<root>/share/man/man1/proj.1`; TLDR page
+  `<root>/share/tldr/pages/common/proj.md`.
+- A checkout used in place (legatum: `/tools/proj`) may expose relative links
+  in the sibling `bin/` and `share/` directories through `proj install`:
+  `/tools/bin/proj -> ../proj/bin/proj`,
+  `/tools/share/man/man1/proj.1 -> ../../../proj/share/man/man1/proj.1`, and
   `/tools/share/tldr/pages/common/proj.md ->
-  ../../../../proj/share/tldr/pages/common/proj.md`.
-- Interactive mutation goes through `shell/init.zsh`; an executable cannot
-  mutate its parent shell.
-- Use `/usr/bin/python3` and the standard library only. This prevents an active
-  project environment from changing proj's runtime.
+  ../../../../proj/share/tldr/pages/common/proj.md`. The adapters prefer those
+  links only when they resolve to the same checkout.
+- Site configuration lives at `<root>/etc/config.toml` (written by
+  `install.sh`, never overwritten on upgrade); user configuration overrides it
+  key by key. Unknown keys are rejected.
+- Interactive mutation goes through `shell/init.zsh` or `shell/init.bash`,
+  which share `shell/core.sh`; an executable cannot mutate its parent shell.
+  Keep `core.sh` portable between Bash and Zsh.
+- `proj init` owns the marked `# >>> proj initialize >>>` block in startup
+  files; it is idempotent and `--reverse` removes it.
+- Use `/usr/bin/python3` (3.11+) with `-P` and the standard library only. This
+  prevents an active project environment or the working directory from
+  changing proj's runtime.
 - Never emulate or fall back from Lmod.
 - Project configuration is metadata-driven; never hardcode a project name.
-- Managed metadata lives at `~/.proj/envs/<name>/project.toml` and points to
-  the project root. `proj create` and `proj config` are the normal interface.
+- Managed metadata lives at `<registry>/<name>/project.toml` (private default
+  `~/.proj/envs`) and points to the project root. `proj create` and
+  `proj config` are the normal interface.
+- Shared mode adds a group registry (mode `3770`). Shared environments are
+  owner-only (`2755`/`644`) unless created `--group-writable`
+  (`2775`/`664`). Writes keep the document's mode and group. The creator is
+  the environment directory's owner. World-writable metadata is refused, and
+  one invalid document must not break discovery for others.
+- Precedence is private, shared, then extra roots; a private environment
+  shadows a shared one with the same name.
 - `--env` is the canonical explicit environment selector. Keep `--project` as
   a compatibility alias unless a deliberate breaking migration removes it.
 - Shell initialization must never activate an environment. Only an explicit
@@ -57,22 +76,29 @@ activation.
 - `bin/`: portable launcher.
 - `proj/`: Python control plane.
 - `shell/`: Zsh adapter and parent-shell lifecycle.
+- `shell/core.sh`: portable lifecycle shared by both adapters.
 - `shell/completion.zsh` and `shell/completions/_proj`: native, on-demand Zsh
   completion for both early and late `compinit` ordering.
+- `shell/completions/proj.bash`: on-demand Bash completion.
+- `install.sh`: POSIX installer (private or shared, prefix, registries, shell
+  initialization, optional dependency installation).
 - `templates/`: generated Lmod modulefile reference.
 - `docs/`: architecture, schema, lifecycle, and troubleshooting.
 - `tests/`: standard-library unit and shell integration tests.
 
 Runtime files live under XDG directories:
 
-- managed project registry: `~/.proj/envs`;
-- configuration: `~/.config/proj/config.toml`;
+- private project registry: `~/.proj/envs` unless configured;
+- shared project registry: configured by the site configuration;
+- configuration: `<root>/etc/config.toml`, then `~/.config/proj/config.toml`;
 - cache/index/modulefiles: `~/.cache/proj`;
 - optional diagnostics: `~/.local/state/proj`.
 
 ## Safety
 
-Activation is a trust boundary. Aliases and hooks come from project metadata.
+Activation is a trust boundary. Aliases and hooks come from project metadata;
+activating someone else's shared environment runs their hooks as you, and proj
+says so.
 Declarative Lmod state reverses cleanly. Arbitrary external hook side effects
 cannot be automatically reversed and should have matching shutdown hooks.
 

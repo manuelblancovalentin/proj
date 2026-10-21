@@ -50,7 +50,9 @@ commands=(
   'module:Manage Lmod dependencies'
   'env:Inspect generated environments'
   'doctor:Check dependencies and integration'
+  'init:Add proj to a shell startup file'
   'install:Expose the command and documentation'
+  '--version:Print the installed proj version'
 )
 module_actions=(
   'list:List configured modules'
@@ -85,6 +87,20 @@ fi
 case $words[2] in
   activate)
     (( CURRENT == 3 )) && _proj_project_names
+    ;;
+  create)
+    if [[ ${words[CURRENT-1]-} == --root ]]; then
+      _directories
+    elif (( CURRENT >= 4 )); then
+      _values 'option' --root --shared --group-writable
+    fi
+    ;;
+  init)
+    case ${words[CURRENT-1]-} in
+      --shell) _values 'shell' zsh bash ;;
+      --rc) _files ;;
+      *) _values 'option' --shell --rc --reverse ;;
+    esac
     ;;
   config)
     if (( CURRENT == 3 )); then

@@ -5,8 +5,9 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import access
 from .config import Config
-from .discovery import discover
+from .discovery import scan
 from .errors import ProjError
 
 
@@ -34,10 +35,14 @@ def run_checks(config: Config) -> list[Check]:
     )
     module_function = os.environ.get("PROJ_MODULE_FUNCTION") == "1"
     mamba = shutil.which("micromamba") or os.environ.get("MAMBA_EXE")
-    shell_adapter = os.environ.get("PROJ_SHELL_INTEGRATION") == "1"
+    shell_adapter = os.environ.get("PROJ_SHELL_INTEGRATION", "")
 
     checks = [
-        Check("zsh adapter", shell_adapter, "loaded" if shell_adapter else "not loaded"),
+        Check(
+            "shell adapter",
+            bool(shell_adapter),
+            f"loaded ({shell_adapter})" if shell_adapter else "not loaded; run `proj init`",
+        ),
         Check("Lmod", lmod_ok, lmod_cmd or shutil.which("lmod") or "not installed"),
         Check(
             "module function",
@@ -51,6 +56,9 @@ def run_checks(config: Config) -> list[Check]:
             str(config.module_cache),
         ),
     ]
+    checks.append(
+        Check("site config", True, str(config.site_config or "none"))
+    )
     existing_roots = [root for root in config.project_roots if root.is_dir()]
     checks.append(
         Check(
@@ -59,9 +67,28 @@ def run_checks(config: Config) -> list[Check]:
             ", ".join(map(str, existing_roots)) or "none exist",
         )
     )
+    if config.shared_registry:
+        try:
+            access.shared_registry(config)
+            checks.append(
+                Check(
+                    "shared registry",
+                    True,
+                    f"{config.shared_registry} (group {config.group})",
+                )
+            )
+        except ProjError as exc:
+            checks.append(Check("shared registry", False, str(exc)))
     try:
-        projects = discover(config)
-        checks.append(Check("metadata", True, f"{len(projects)} project(s) valid"))
+        found = scan(config)
+        problems = "; ".join(problem for _path, problem in found.problems)
+        checks.append(
+            Check(
+                "metadata",
+                not problems,
+                problems or f"{len(found.projects)} project(s) valid",
+            )
+        )
     except ProjError as exc:
         checks.append(Check("metadata", False, str(exc)))
     return checks

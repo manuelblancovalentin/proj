@@ -1,0 +1,428 @@
+#!/bin/sh
+# Installer for proj, a project environment manager built on Lmod.
+#
+#   sh install.sh [options]                      from a checkout or release
+#   curl -fsSL <raw-url>/install.sh | sh         downloads the sources
+#   curl -fsSL <raw-url>/install.sh | sh -s -- --yes --prefix ~/opt/proj
+#
+# Run `sh install.sh --help` for every option. Prompts read from the terminal,
+# so piping the script into sh stays interactive.
+set -eu
+
+PROJ_REPO=${PROJ_REPO:-manuelblancovalentin/proj}
+PROJ_REF=${PROJ_REF:-master}
+INSTALLED_ITEMS='bin proj shell share templates docs README.md'
+MARKER=.proj-install
+
+prefix=
+mode=
+group=
+registry=
+shared_registry=
+source_dir=
+init=
+shell_name=
+system_init=
+install_deps=
+batch=0
+tmp=
+
+usage() {
+  cat <<EOF
+Usage: install.sh [options]
+
+Installs proj, then optionally initializes your shell. Without options every
+choice is asked interactively with a default shown in brackets.
+
+  --prefix DIR            installation directory (default: /opt/proj, or
+                          ~/.local/opt/proj when /opt is not writable)
+  --mode private|shared   private: only you; shared: members of a group
+                          (default: shared when run as root, else private)
+  --group NAME            group for shared mode (default: proj)
+  --registry DIR          private environment registry (default: ~/.proj/envs)
+  --shared-registry DIR   shared environment registry (default: PREFIX/envs)
+  --shell zsh|bash        shell to initialize (default: from \$SHELL)
+  --init / --no-init      add proj to your shell startup file
+  --system-init / --no-system-init
+                          as root, add proj to the system-wide startup files
+  --install-deps / --no-install-deps
+                          offer to install missing Lmod and micromamba
+  --source DIR            install from this source tree instead of downloading
+  --ref REF               branch or tag to download (default: $PROJ_REF)
+  -y, --yes               accept defaults; never prompt
+  -h, --help              show this help
+
+Environment: PROJ_REPO (default $PROJ_REPO), PROJ_REF.
+EOF
+}
+
+say() { printf '%s\n' "$*"; }
+note() { printf '  - %s\n' "$*"; }
+warn() { printf 'proj-install: warning: %s\n' "$*" >&2; }
+die() { printf 'proj-install: error: %s\n' "$*" >&2; exit 1; }
+
+cleanup() {
+  if [ -n "$tmp" ]; then rm -rf -- "$tmp"; fi
+}
+trap cleanup EXIT HUP INT TERM
+
+interactive() {
+  [ "$batch" = 0 ] && (: </dev/tty) 2>/dev/null
+}
+
+# ask VARIABLE QUESTION DEFAULT
+ask() {
+  _answer=
+  if interactive; then
+    printf '%s [%s]: ' "$2" "$3" >/dev/tty
+    IFS= read -r _answer </dev/tty || _answer=
+  fi
+  [ -n "$_answer" ] || _answer=$3
+  eval "$1=\$_answer"
+}
+
+# confirm QUESTION DEFAULT(yes|no)
+confirm() {
+  ask _reply "$1 (yes/no)" "$2"
+  case $_reply in
+    [Yy]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+expand_home() {
+  case $1 in
+    '~') printf '%s\n' "$HOME" ;;
+    '~/'*) printf '%s/%s\n' "$HOME" "${1#\~/}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+toml_string() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+is_root() { [ "$(id -u)" = 0 ]; }
+
+sudo_prefix() {
+  if is_root; then
+    printf '\n'
+  elif command -v sudo >/dev/null 2>&1; then
+    printf 'sudo \n'
+  else
+    return 1
+  fi
+}
+
+lmod_present() {
+  [ -n "${LMOD_CMD-}" ] && [ -x "$LMOD_CMD" ] && return 0
+  command -v lmod >/dev/null 2>&1 && return 0
+  for candidate in /usr/share/lmod/lmod/libexec/lmod \
+    /opt/apps/lmod/lmod/libexec/lmod /usr/local/lmod/lmod/libexec/lmod; do
+    [ -x "$candidate" ] && return 0
+  done
+  return 1
+}
+
+lmod_package_command() {
+  if command -v apt-get >/dev/null 2>&1; then
+    printf 'apt-get install -y lmod\n'
+  elif command -v dnf >/dev/null 2>&1; then
+    printf 'dnf install -y Lmod\n'
+  elif command -v yum >/dev/null 2>&1; then
+    printf 'yum install -y Lmod\n'
+  elif command -v zypper >/dev/null 2>&1; then
+    printf 'zypper install -y lua-lmod\n'
+  else
+    return 1
+  fi
+}
+
+download() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$1" -o "$2"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "$1" -O "$2"
+  else
+    die "curl or wget is required to download $1"
+  fi
+}
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    --prefix) prefix=${2?--prefix needs a directory}; shift ;;
+    --mode) mode=${2?--mode needs private or shared}; shift ;;
+    --group) group=${2?--group needs a name}; shift ;;
+    --registry) registry=${2?--registry needs a directory}; shift ;;
+    --shared-registry) shared_registry=${2?--shared-registry needs a directory}; shift ;;
+    --shell) shell_name=${2?--shell needs zsh or bash}; shift ;;
+    --source) source_dir=${2?--source needs a directory}; shift ;;
+    --ref) PROJ_REF=${2?--ref needs a branch or tag}; shift ;;
+    --init) init=yes ;;
+    --no-init) init=no ;;
+    --system-init) system_init=yes ;;
+    --no-system-init) system_init=no ;;
+    --install-deps) install_deps=yes ;;
+    --no-install-deps) install_deps=no ;;
+    -y|--yes) batch=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown option: $1" ;;
+  esac
+  shift
+done
+
+# --- Sources -----------------------------------------------------------------
+
+if [ -z "$source_dir" ]; then
+  script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || script_dir=
+  if [ -n "$script_dir" ] && [ -f "$script_dir/proj/cli.py" ]; then
+    source_dir=$script_dir
+  else
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/proj-install.XXXXXX")
+    url="https://github.com/$PROJ_REPO/archive/$PROJ_REF.tar.gz"
+    say "Downloading proj from $url"
+    download "$url" "$tmp/proj.tar.gz"
+    mkdir "$tmp/src"
+    tar -xzf "$tmp/proj.tar.gz" -C "$tmp/src" --strip-components=1
+    source_dir=$tmp/src
+  fi
+fi
+source_dir=$(CDPATH= cd -- "$source_dir" && pwd -P)
+[ -f "$source_dir/proj/cli.py" ] || die "not a proj source tree: $source_dir"
+version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$source_dir/proj/__init__.py")
+say "Installing proj $version"
+
+# --- Requirements ------------------------------------------------------------
+
+# proj always runs with the system interpreter so project environments cannot
+# replace its runtime.
+if ! /usr/bin/python3 -c 'import sys, tomllib; sys.exit(sys.version_info < (3, 11))' \
+  2>/dev/null; then
+  die "proj needs /usr/bin/python3 3.11 or newer (with tomllib)"
+fi
+
+[ -n "$shell_name" ] || shell_name=${SHELL##*/}
+case $shell_name in
+  zsh|bash) ;;
+  *)
+    warn "unsupported login shell '${shell_name:-unknown}'; proj supports zsh and bash"
+    shell_name=
+    ;;
+esac
+
+if ! lmod_present; then
+  warn "Lmod was not found; proj needs it to activate environments"
+  if command=$(lmod_package_command) && sudo=$(sudo_prefix); then
+    if [ "$install_deps" = yes ] ||
+       { [ -z "$install_deps" ] && confirm "Install Lmod now with: ${sudo}$command" no; }; then
+      # shellcheck disable=SC2086
+      ${sudo}$command || warn "Lmod installation failed; install it manually"
+    else
+      note "Install it later with: ${sudo}$command"
+    fi
+  else
+    note "Ask your administrator to install Lmod."
+  fi
+fi
+
+if ! command -v micromamba >/dev/null 2>&1 && [ -z "${MAMBA_EXE-}" ]; then
+  say "micromamba was not found (optional; needed only for Python environments)."
+  if is_root; then
+    note "Each user can install it with: \"\${SHELL}\" <(curl -L micro.mamba.pm/install.sh)"
+  elif [ "$install_deps" = yes ] ||
+       { [ -z "$install_deps" ] && interactive &&
+         confirm "Install micromamba for $(id -un) with its official installer" no; }; then
+    [ -n "$tmp" ] || tmp=$(mktemp -d "${TMPDIR:-/tmp}/proj-install.XXXXXX")
+    download https://micro.mamba.pm/install.sh "$tmp/micromamba-install.sh"
+    if interactive; then
+      "${SHELL:-bash}" "$tmp/micromamba-install.sh" </dev/tty ||
+        warn "micromamba installation failed"
+    else
+      "${SHELL:-bash}" "$tmp/micromamba-install.sh" </dev/null ||
+        warn "micromamba installation failed"
+    fi
+  fi
+fi
+
+# --- Mode ---------------------------------------------------------------------
+
+if [ -z "$mode" ]; then
+  if is_root; then default_mode=shared; else default_mode=private; fi
+  say ''
+  say 'private: only you can see and use your environments.'
+  say 'shared:  members of a group can activate everyone'\''s shared environments;'
+  say '         each environment is changed only by its creator unless created'
+  say '         with --group-writable. Private environments remain available.'
+  ask mode 'Installation mode (private/shared)' "$default_mode"
+fi
+case $mode in
+  private|shared) ;;
+  *) die "mode must be private or shared, not '$mode'" ;;
+esac
+
+if [ "$mode" = shared ]; then
+  [ -n "$group" ] || ask group 'Group whose members share environments' proj
+  if ! getent group "$group" >/dev/null 2>&1; then
+    if is_root && confirm "Group '$group' does not exist. Create it" yes; then
+      groupadd "$group"
+    else
+      die "group '$group' does not exist; an administrator can run: sudo groupadd $group"
+    fi
+  fi
+  if ! is_root && ! id -nG | tr ' ' '\n' | grep -qx "$group"; then
+    warn "you are not in group '$group'; ask for: sudo usermod -aG $group $(id -un)"
+  fi
+fi
+
+# --- Location -----------------------------------------------------------------
+
+if [ -z "$prefix" ]; then
+  default_prefix=/opt/proj
+  if [ "$mode" = private ] && ! is_root && ! [ -w /opt ] && ! [ -w /opt/proj ]; then
+    default_prefix=$HOME/.local/opt/proj
+  fi
+fi
+
+while :; do
+  if [ -z "$prefix" ]; then
+    ask prefix 'Install proj into' "$default_prefix"
+  fi
+  prefix=$(expand_home "$prefix")
+  problem=
+  case $prefix in
+    /*) ;;
+    *) problem="the installation directory must be an absolute path" ;;
+  esac
+  if [ -z "$problem" ] && [ -e "$prefix" ]; then
+    if [ "$(CDPATH= cd -- "$prefix" 2>/dev/null && pwd -P)" = "$source_dir" ] ||
+       [ -e "$prefix/.git" ]; then
+      problem="$prefix is a source checkout; choose another directory"
+    elif ! [ -f "$prefix/$MARKER" ] && [ -n "$(ls -A "$prefix" 2>/dev/null)" ]; then
+      problem="$prefix exists and is not a proj installation"
+    fi
+  fi
+  if [ -z "$problem" ] && ! mkdir -p "$prefix" 2>/dev/null; then
+    problem="cannot create $prefix (try another directory, or run with sudo)"
+  fi
+  if [ -z "$problem" ] && ! [ -w "$prefix" ]; then
+    problem="$prefix is not writable"
+  fi
+  [ -z "$problem" ] && break
+  interactive || die "$problem"
+  warn "$problem"
+  prefix=
+done
+prefix=$(CDPATH= cd -- "$prefix" && pwd -P)
+
+upgrade=0
+[ -f "$prefix/$MARKER" ] && upgrade=1
+config_file=$prefix/etc/config.toml
+write_config=1
+if [ -f "$config_file" ]; then
+  write_config=0
+  say "Keeping the existing configuration at $config_file"
+fi
+
+if [ "$write_config" = 1 ]; then
+  if [ "$mode" = private ] && [ -z "$registry" ]; then
+    ask registry 'Store your environments in' '~/.proj/envs'
+  fi
+  [ -n "$registry" ] || registry='~/.proj/envs'
+  # A leading ~ stays literal so each user's own home directory is used.
+  case $registry in
+    /*|'~'|'~/'*) ;;
+    *) die "the registry must be an absolute path or start with ~/" ;;
+  esac
+  if [ "$mode" = shared ] && [ -z "$shared_registry" ]; then
+    ask shared_registry 'Store shared environments in' "$prefix/envs"
+  fi
+fi
+
+# --- Files ------------------------------------------------------------------
+
+stage=$(mktemp -d "$prefix/.install.XXXXXX")
+for item in $INSTALLED_ITEMS; do
+  cp -R "$source_dir/$item" "$stage/$item"
+done
+find "$stage" -name __pycache__ -prune -exec rm -rf {} +
+chmod -R u+rwX,go+rX,go-w "$stage"
+for item in $INSTALLED_ITEMS; do
+  rm -rf -- "${prefix:?}/$item"
+  mv "$stage/$item" "$prefix/$item"
+done
+rmdir "$stage"
+printf '%s\n' "$version" >"$prefix/$MARKER"
+chmod go+rx "$prefix"
+
+if [ "$write_config" = 1 ]; then
+  mkdir -p "$prefix/etc"
+  {
+    say '# Written by the proj installer; `proj doctor` shows the effective values.'
+    say '# Users may override keys in ~/.config/proj/config.toml.'
+    say 'schema = 1'
+    say "registry = $(toml_string "$registry")"
+    if [ "$mode" = shared ]; then
+      say "shared_registry = $(toml_string "$(expand_home "$shared_registry")")"
+      say "group = $(toml_string "$group")"
+    fi
+  } >"$config_file"
+  chmod 644 "$config_file"
+fi
+
+if [ "$mode" = shared ] && [ -n "$shared_registry" ]; then
+  shared_registry=$(expand_home "$shared_registry")
+  mkdir -p "$shared_registry"
+  # setgid keeps the group on new environments; sticky stops members from
+  # removing or renaming environments they do not own.
+  if chgrp "$group" "$shared_registry" && chmod 3770 "$shared_registry"; then
+    note "shared registry $shared_registry (group $group, mode 3770)"
+  else
+    warn "could not set group and mode on $shared_registry; as root run:"
+    warn "  chgrp $group $shared_registry && chmod 3770 $shared_registry"
+  fi
+fi
+
+if [ "$upgrade" = 1 ]; then
+  say "Upgraded proj in $prefix"
+else
+  say "Installed proj in $prefix"
+fi
+
+# --- Shell initialization -----------------------------------------------------
+
+proj_bin=$prefix/bin/proj
+
+if is_root; then
+  system_files=
+  for candidate in /etc/zsh/zshrc /etc/zshrc /etc/bash.bashrc /etc/bashrc; do
+    [ -f "$candidate" ] && system_files="$system_files $candidate"
+  done
+  if [ -n "$system_files" ] &&
+     { [ "$system_init" = yes ] ||
+       { [ -z "$system_init" ] &&
+         confirm "Enable proj for every user via$system_files" no; }; }; then
+    for file in $system_files; do
+      case $file in
+        *zsh*) "$proj_bin" init --shell zsh --rc "$file" ;;
+        *) "$proj_bin" init --shell bash --rc "$file" ;;
+      esac
+    done
+  else
+    note "Each user can enable proj with: $proj_bin init"
+  fi
+elif [ -n "$shell_name" ]; then
+  if [ "$init" = yes ] ||
+     { [ -z "$init" ] && confirm "Initialize proj for $shell_name now" yes; }; then
+    "$proj_bin" init --shell "$shell_name"
+  else
+    note "Initialize later with: $proj_bin init"
+  fi
+else
+  note "Initialize later with: $proj_bin init --shell zsh|bash"
+fi
+
+say ''
+say "Open a new shell, then run:  proj --version && proj doctor"
+if [ "$mode" = shared ]; then
+  say "Create a shared environment: proj create <name> --shared [--group-writable]"
+fi

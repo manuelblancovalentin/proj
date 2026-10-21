@@ -4,15 +4,18 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
 
 from . import __version__
-from .config import Config, load_config
-from .discovery import discover, resolve
+from . import access
+from .config import TOOL_ROOT, Config, load_config
+from .discovery import discover, resolve, scan
 from .doctor import run_checks
 from .editor import (
     create_document,
@@ -23,7 +26,7 @@ from .editor import (
     write_document,
 )
 from .errors import ProjError
-from .metadata import MODULE_CATEGORIES, NAME_RE, Project, load_project
+from .metadata import MODULE_CATEGORIES, NAME_RE, SHELLS, Project, load_project
 from .modulefile import materialize, render
 from .shell import activation_code, deactivation_code
 
@@ -42,12 +45,20 @@ def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
 
 
 def cmd_list(config: Config, _args: argparse.Namespace) -> int:
-    projects = discover(config)
+    found = scan(config)
     rows = [
-        (project.name, project.description, str(project.root))
-        for project in sorted(projects.values(), key=lambda item: item.name)
+        (
+            project.name,
+            access.scope(config, project),
+            access.project_owner(project),
+            project.description,
+            str(project.root),
+        )
+        for project in sorted(found.projects.values(), key=lambda item: item.name)
     ]
-    _table(("NAME", "DESCRIPTION", "ROOT"), rows)
+    _table(("NAME", "SCOPE", "OWNER", "DESCRIPTION", "ROOT"), rows)
+    for _path, problem in found.problems:
+        print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
     return 0
 
 
@@ -74,8 +85,24 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
     root = Path(args.root or os.getcwd()).expanduser().resolve()
     if not root.is_dir():
         raise ProjError(f"project root does not exist: {root}")
-    metadata_path = config.proj_home / "envs" / args.name / "project.toml"
-    create_document(metadata_path, args.name, root)
+    if args.group_writable and not args.shared:
+        raise ProjError("--group-writable requires --shared")
+    existing = discover(config).get(args.name)
+    if existing:
+        raise ProjError(
+            f"environment {args.name!r} already exists at {existing.metadata_path}"
+        )
+    mode = None
+    if args.shared:
+        metadata_path = access.shared_registry(config) / args.name / "project.toml"
+        if metadata_path.parent.exists():
+            raise ProjError(f"environment {args.name!r} already exists at {metadata_path}")
+        mode = access.prepare_shared_directory(
+            config, metadata_path.parent, args.group_writable
+        )
+    else:
+        metadata_path = config.registry / args.name / "project.toml"
+    create_document(metadata_path, args.name, root, mode)
     # Validate the generated document before reporting success.
     load_project(metadata_path)
     print(f"Environment {args.name!r} successfully created.")
@@ -93,9 +120,11 @@ def _selected_project(config: Config, requested: str | None) -> Project:
     return resolve(config, name)
 
 
-def _info_rows(project: Project) -> list[tuple[str, str]]:
+def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
     rows = [
         ("Description", project.description),
+        ("Scope", access.describe_scope(config, project)),
+        ("Owner", access.project_owner(project)),
         ("Root", str(project.root)),
         ("Metadata", str(project.metadata_path)),
         ("Shell", project.shell),
@@ -136,20 +165,21 @@ def _info_rows(project: Project) -> list[tuple[str, str]]:
 def cmd_info(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
     print(f"Project environment: {project.name}")
-    _table(("FIELD", "VALUE"), _info_rows(project))
+    _table(("FIELD", "VALUE"), _info_rows(config, project))
     return 0
 
 
 def cmd_info_code(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
     values = [project.name]
-    for label, value in _info_rows(project):
+    for label, value in _info_rows(config, project):
         values.extend((label, value))
     print("_proj_render_info " + " ".join(shlex.quote(value) for value in values))
     return 0
 
 
 def _update_document(project: Project, mutate) -> None:
+    access.require_writable(project)
     path = project.metadata_path
     original = path.read_text()
     data = load_document(path)
@@ -185,7 +215,7 @@ def cmd_config(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
-def _micromamba_environments() -> list[str]:
+def _micromamba_environments() -> dict[str, Path]:
     executable = os.environ.get("MAMBA_EXE") or shutil.which("micromamba")
     if not executable:
         raise ProjError("micromamba is not available")
@@ -198,10 +228,17 @@ def _micromamba_environments() -> list[str]:
     if completed.returncode:
         raise ProjError(completed.stderr.strip() or "cannot list micromamba environments")
     try:
-        paths = json.loads(completed.stdout).get("envs", [])
+        paths = [Path(path) for path in json.loads(completed.stdout).get("envs", [])]
     except json.JSONDecodeError as exc:
         raise ProjError("micromamba returned invalid JSON") from exc
-    return sorted({Path(path).name for path in paths})
+    # The root prefix is listed by path, but micromamba activates it as `base`.
+    root_prefix = os.environ.get("MAMBA_ROOT_PREFIX")
+    roots = {Path(root_prefix)} if root_prefix else set()
+    roots.update(path.parent.parent for path in paths if path.parent.name == "envs")
+    return {
+        ("base" if path in roots else path.name): path
+        for path in sorted(paths)
+    }
 
 
 def cmd_python_env_list(_config: Config, _args: argparse.Namespace) -> int:
@@ -209,26 +246,37 @@ def cmd_python_env_list(_config: Config, _args: argparse.Namespace) -> int:
     if not environments:
         print("No micromamba environments found.")
         return 0
-    for name in environments:
+    for name in sorted(environments):
         print(name)
     return 0
 
 
 def cmd_set_python_env(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
-    available = _micromamba_environments()
-    if args.environment not in available:
-        raise ProjError(
-            f"unknown micromamba environment {args.environment!r}; "
-            "run `proj python-env list`"
-        )
+    if os.path.isabs(args.environment):
+        prefix = Path(args.environment).resolve()
+        if not (prefix / "conda-meta").is_dir():
+            raise ProjError(f"not a micromamba environment prefix: {prefix}")
+        environment = str(prefix)
+    else:
+        available = _micromamba_environments()
+        if args.environment not in available:
+            raise ProjError(
+                f"unknown micromamba environment {args.environment!r}; "
+                "run `proj python-env list`"
+            )
+        # Names resolve against each user's own micromamba root, so a shared
+        # environment records the prefix that every member activates.
+        environment = args.environment
+        if access.scope(config, project) == "shared":
+            environment = str(available[args.environment])
 
     def mutate(data):
         set_dotted(data, "python.manager", "micromamba")
-        set_dotted(data, "python.environment", args.environment)
+        set_dotted(data, "python.environment", environment)
 
     _update_document(project, mutate)
-    print(f"Linked micromamba environment {args.environment!r} to {project.name}.")
+    print(f"Linked micromamba environment {environment!r} to {project.name}.")
     print(f"Metadata updated at {project.metadata_path}")
     return 0
 
@@ -285,7 +333,11 @@ def cmd_status(config: Config, _args: argparse.Namespace) -> int:
         for module in project.modules.get(category, ())
     }
     module_loaded = project.module_name in loaded or os.environ.get("PROJ_MODULE") == project.module_name
-    current_env = os.environ.get("CONDA_DEFAULT_ENV", "")
+    python_env = project.python_environment or ""
+    if os.path.isabs(python_env):
+        current_env = os.environ.get("CONDA_PREFIX", "")
+    else:
+        current_env = os.environ.get("CONDA_DEFAULT_ENV", "")
     drift = []
     if not module_loaded:
         drift.append("project module is not loaded")
@@ -428,6 +480,64 @@ def cmd_hook(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+INIT_BEGIN = "# >>> proj initialize >>>"
+INIT_END = "# <<< proj initialize <<<"
+INIT_BLOCK = re.compile(
+    r"\n?" + re.escape(INIT_BEGIN) + r".*?" + re.escape(INIT_END) + r"\n?", re.S
+)
+
+
+def _detect_shell(requested: str | None) -> str:
+    shell = requested or Path(os.environ.get("SHELL", "")).name
+    if shell not in SHELLS:
+        raise ProjError(
+            f"cannot initialize shell {shell or 'unknown'!r}; "
+            "pass --shell " + "|".join(SHELLS)
+        )
+    return shell
+
+
+def _default_rc(shell: str) -> Path:
+    if shell == "zsh":
+        return Path(os.environ.get("ZDOTDIR", Path.home())) / ".zshrc"
+    return Path.home() / ".bashrc"
+
+
+def cmd_init(_config: Config, args: argparse.Namespace) -> int:
+    shell = _detect_shell(args.shell)
+    rc = Path(args.rc).expanduser() if args.rc else _default_rc(shell)
+    # Edit the target of a symlinked startup file, not the link.
+    rc = rc.resolve()
+    adapter = shlex.quote(str(TOOL_ROOT / "shell" / f"init.{shell}"))
+    original = rc.read_text() if rc.exists() else ""
+    updated = INIT_BLOCK.sub("\n", original).rstrip("\n")
+    if not args.reverse:
+        block = (
+            f"{INIT_BEGIN}\n"
+            "# Managed by `proj init`; edits inside this block are replaced.\n"
+            f"if [ -r {adapter} ]; then\n"
+            f"    . {adapter}\n"
+            "fi\n"
+            f"{INIT_END}"
+        )
+        updated = f"{updated}\n\n{block}" if updated else block
+    updated = updated + "\n" if updated else ""
+    if updated == original:
+        print(f"proj: {rc} already {'clean' if args.reverse else 'initialized'}")
+        return 0
+    rc.parent.mkdir(parents=True, exist_ok=True)
+    temporary = rc.with_name(f".{rc.name}.proj-tmp")
+    temporary.write_text(updated)
+    if rc.exists():
+        os.chmod(temporary, stat.S_IMODE(rc.stat().st_mode))
+    temporary.replace(rc)
+    if args.reverse:
+        print(f"proj: removed initialization from {rc}")
+    else:
+        print(f"proj: initialized {shell} in {rc}; open a new shell to use it")
+    return 0
+
+
 def cmd_shell(config: Config, args: argparse.Namespace) -> int:
     if args.action == "activate":
         if os.environ.get("PROJ_ACTIVE"):
@@ -435,6 +545,13 @@ def cmd_shell(config: Config, args: argparse.Namespace) -> int:
                 f"project {os.environ['PROJ_ACTIVE']!r} is already active; deactivate it first"
             )
         project = resolve(config, args.project)
+        owner = access.project_owner(project)
+        if owner != access.current_user():
+            print(
+                f"proj: environment {project.name!r} belongs to {owner}; "
+                "its hooks and aliases run as you",
+                file=sys.stderr,
+            )
         print(activation_code(config, project))
         return 0
     active = os.environ.get("PROJ_ACTIVE")
@@ -448,13 +565,19 @@ def cmd_shell(config: Config, args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="proj")
-    parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--version", action="version", version=f"proj {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="list registered projects")
     sub.add_parser("status", help="show active project state")
     sub.add_parser("current", help="print the active project name")
     sub.add_parser("doctor", help="check dependencies and integration")
-    sub.add_parser("install", help="expose proj through /tools/bin")
+    sub.add_parser("install", help="link proj into the bin directory beside its checkout")
+    init = sub.add_parser("init", help="add proj to a shell startup file")
+    init.add_argument("--shell", choices=SHELLS)
+    init.add_argument("--rc", metavar="FILE", help="startup file to edit")
+    init.add_argument(
+        "--reverse", action="store_true", help="remove the initialization block"
+    )
     info_parser = sub.add_parser("info", help="show project environment metadata")
     info_parser.add_argument(
         "--env", "--project", dest="project", metavar="NAME"
@@ -462,6 +585,14 @@ def build_parser() -> argparse.ArgumentParser:
     create = sub.add_parser("create", help="register a project environment")
     create.add_argument("name")
     create.add_argument("--root")
+    create.add_argument(
+        "--shared", action="store_true", help="create in the shared group registry"
+    )
+    create.add_argument(
+        "--group-writable",
+        action="store_true",
+        help="let every group member change a shared environment",
+    )
     config_parser = sub.add_parser("config", help="read or write project metadata")
     config_parser.add_argument(
         "--env", "--project", dest="project", metavar="NAME"
@@ -545,6 +676,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_doctor(config, args)
         if args.command == "install":
             return _install_link()
+        if args.command == "init":
+            return cmd_init(config, args)
         if args.command == "env" and args.env_command == "list":
             return cmd_env_list(config, args)
         if args.command == "env" and args.env_command == "show":
@@ -557,12 +690,15 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_shell(config, args)
         if args.command in {"activate", "deactivate"}:
             raise ProjError(
-                f"{args.command} must run through the Zsh integration; "
-                "source /tools/proj/shell/init.zsh"
+                f"{args.command} must run through the shell integration; "
+                f"run `proj init` or source {TOOL_ROOT}/shell/init.<zsh|bash>"
             )
         parser.error("unhandled command")
     except ProjError as exc:
         print(f"proj: {exc}", file=sys.stderr)
+        return 2
+    except PermissionError as exc:
+        print(f"proj: permission denied: {exc.filename or exc}", file=sys.stderr)
         return 2
     return 0
 

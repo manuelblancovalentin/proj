@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -16,6 +17,7 @@ NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 ENVIRONMENT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VARIABLE_RE = re.compile(r"\$\{([^}]+)\}")
 MODULE_CATEGORIES = ("project", "toolchain", "application", "compiler")
+SHELLS = ("zsh", "bash")
 
 
 @dataclass(frozen=True)
@@ -115,11 +117,19 @@ def _hooks(value: Any, label: str, source: Path) -> tuple[Hook, ...]:
     return tuple(result)
 
 
+def _reject_world_writable(metadata_path: Path) -> None:
+    # Anyone could inject hooks or aliases into a world-writable document.
+    for candidate in (metadata_path, metadata_path.parent):
+        if candidate.stat().st_mode & stat.S_IWOTH:
+            raise MetadataError(f"{candidate} is world-writable; refusing to load it")
+
+
 def load_project(metadata_path: Path) -> Project:
     metadata_path = metadata_path.resolve()
     try:
         with metadata_path.open("rb") as handle:
             data = tomllib.load(handle)
+        _reject_world_writable(metadata_path)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise MetadataError(f"cannot read {metadata_path}: {exc}") from exc
 
@@ -136,8 +146,10 @@ def load_project(metadata_path: Path) -> Project:
     if not root.is_dir():
         raise MetadataError(f"{metadata_path}: project root does not exist: {root}")
     shell = _string(project_data, "shell", metadata_path) or "zsh"
-    if shell != "zsh":
-        raise MetadataError(f"{metadata_path}: only shell = 'zsh' is supported")
+    if shell not in SHELLS:
+        raise MetadataError(
+            f"{metadata_path}: shell must be one of: " + ", ".join(SHELLS)
+        )
     python_data = _table(data, "python", metadata_path)
     python_manager = _string(python_data, "manager", metadata_path)
     python_environment = _string(python_data, "environment", metadata_path)

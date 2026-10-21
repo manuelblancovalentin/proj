@@ -13,13 +13,21 @@ package without sourcing Lmod's Zsh initialization is insufficient.
 
 ## Activation says to source the integration
 
-Add this to the interactive Zsh configuration:
-
-```zsh
-source /tools/proj/shell/init.zsh
-```
-
+Run `proj init` (it detects Zsh or Bash from `$SHELL`) and open a new shell.
 An executable cannot modify its parent shell.
+
+## `proj` runs a different program
+
+Some systems ship an unrelated `/usr/bin/proj` (the PROJ cartography tool).
+Initialize the shell so proj's `bin/` directory comes first on `PATH`, or
+call the installed launcher by its full path.
+
+## Shared environments
+
+`proj doctor` checks the shared registry. "not a member of group" means an
+administrator must run `usermod -aG <group> <user>`, after which you log in
+again. "belongs to <user>" means the environment is owner-only; ask its owner,
+or create a group-writable environment.
 
 ## Micromamba integration unavailable
 
@@ -34,5 +42,5 @@ guess or force cleanup.
 
 ## A public command link conflicts
 
-`proj install` never overwrites `/tools/bin/proj`. Inspect and resolve the
+`proj install` never overwrites an existing `bin/proj` beside the checkout. Inspect and resolve the
 existing path manually, then rerun installation.

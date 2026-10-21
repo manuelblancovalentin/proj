@@ -7,9 +7,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from proj import access
 from proj.config import load_config
-from proj.discovery import discover
-from proj.editor import create_document, load_document, parse_value, set_dotted
+from proj.discovery import discover, resolve, scan
+from proj.editor import (
+    create_document,
+    load_document,
+    parse_value,
+    set_dotted,
+    write_document,
+)
 from proj.errors import MetadataError
 from proj.errors import ProjError
 from proj.metadata import load_project
@@ -146,6 +153,85 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(data["environment"]["DEMO_MODE"], "development")
         with self.assertRaises(ProjError):
             set_dotted(data, "project.descriptino", "typo")
+
+
+class SharingTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name)
+        self.root = self.base / "work"
+        self.root.mkdir()
+        self.private = self.base / "private"
+        self.shared = self.base / "shared"
+        self.site = self.base / "site.toml"
+        self.site.write_text(
+            f'schema = 1\nregistry = "{self.private}"\n'
+            f'shared_registry = "{self.shared}"\ngroup = "staff"\n'
+        )
+        self.environment = {
+            "PROJ_SITE_CONFIG": str(self.site),
+            "PROJ_CONFIG": str(self.base / "user.toml"),
+            "PROJ_CACHE_HOME": str(self.base / "cache"),
+        }
+        self.patch = patch.dict(os.environ, self.environment)
+        self.patch.start()
+        os.environ.pop("PROJ_HOME", None)
+        os.environ.pop("PROJ_PROJECT_ROOTS", None)
+
+    def tearDown(self):
+        self.patch.stop()
+        self.temp.cleanup()
+
+    def write(self, registry: Path, name: str, description: str) -> Path:
+        path = registry / name / "project.toml"
+        create_document(path, name, self.root)
+        data = load_document(path)
+        data["project"]["description"] = description
+        write_document(path, data)
+        return path
+
+    def test_user_configuration_overrides_site_configuration(self):
+        Path(self.environment["PROJ_CONFIG"]).write_text(
+            f'schema = 1\nregistry = "{self.base / "mine"}"\n'
+        )
+        config = load_config()
+        self.assertEqual(config.registry, self.base / "mine")
+        self.assertEqual(config.shared_registry, self.shared)
+        self.assertEqual(config.group, "staff")
+        self.assertEqual(config.project_roots[:2], (self.base / "mine", self.shared))
+
+    def test_unknown_configuration_keys_are_rejected(self):
+        self.site.write_text("schema = 1\nregistyr = '/tmp'\n")
+        with self.assertRaises(ProjError):
+            load_config()
+
+    def test_private_shadows_shared_and_invalid_documents_are_skipped(self):
+        self.write(self.shared, "atlas", "shared")
+        self.write(self.private, "atlas", "private")
+        broken = self.shared / "broken" / "project.toml"
+        broken.parent.mkdir(parents=True)
+        broken.write_text("schema = 2\n")
+        found = scan(load_config())
+        self.assertEqual(found.projects["atlas"].description, "private")
+        self.assertEqual([path for path, _ in found.problems], [broken.resolve()])
+        with self.assertRaises(ProjError):
+            resolve(load_config(), "broken")
+
+    def test_world_writable_metadata_is_rejected(self):
+        path = self.write(self.private, "open", "open")
+        path.chmod(0o666)
+        with self.assertRaises(MetadataError):
+            load_project(path)
+
+    def test_read_only_environment_names_its_owner(self):
+        path = self.write(self.shared, "locked", "locked")
+        project = load_project(path)
+        path.parent.chmod(0o555)
+        try:
+            with self.assertRaisesRegex(ProjError, "belongs to"):
+                access.require_writable(project)
+        finally:
+            path.parent.chmod(0o755)
 
 
 if __name__ == "__main__":

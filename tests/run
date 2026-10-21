@@ -18,6 +18,11 @@ bash -n "$root/bin/proj" || fail "launcher syntax"
 zsh -n "$root/shell/init.zsh" || fail "Zsh adapter syntax"
 zsh -n "$root/shell/completion.zsh" || fail "Zsh completion syntax"
 zsh -n "$root/shell/completions/_proj" || fail "Zsh completion function syntax"
+zsh -n "$root/shell/core.sh" || fail "shared core syntax under Zsh"
+bash -n "$root/shell/core.sh" || fail "shared core syntax under Bash"
+bash -n "$root/shell/init.bash" || fail "Bash adapter syntax"
+bash -n "$root/shell/completions/proj.bash" || fail "Bash completion syntax"
+sh -n "$root/install.sh" || fail "installer syntax"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root" /usr/bin/python3 -c '
 import ast, pathlib, sys
 for path in pathlib.Path(sys.argv[1]).glob("*.py"):
@@ -32,16 +37,29 @@ shell_state=$(zsh -f -c '
   typeset -a matches
   typeset -a man_matches
   typeset -a data_matches
-  matches=(${(M)path:#$PROJ_GLOBAL_BIN})
+  matches=(${(M)path:#$PROJ_BIN_DIR})
   man_matches=(${(s.:.)MANPATH})
-  man_matches=(${(M)man_matches:#$PROJ_GLOBAL_MAN})
+  man_matches=(${(M)man_matches:#$PROJ_MAN_DIR})
   data_matches=(${(s.:.)XDG_DATA_DIRS})
-  data_matches=(${(M)data_matches:#$PROJ_GLOBAL_SHARE})
+  data_matches=(${(M)data_matches:#$PROJ_DATA_DIR})
   print -r -- \
     "${#matches} ${#man_matches} ${#data_matches} $(( $+aliases[mamba] ))"
 ' zsh "$root")
 [ "$shell_state" = '1 1 1 1' ] ||
   fail "idempotent PATH, MANPATH, XDG data, and mamba alias: $shell_state"
+bash_state=$(bash --norc --noprofile -c '
+  . "$1/shell/init.bash"
+  . "$1/shell/init.bash"
+  micromamba() { :; }
+  _proj_setup_mamba_alias
+  count() { printf "%s\n" "$2" | tr : "\n" | grep -cx -- "$1"; }
+  printf "%s %s %s %s %s %s\n" "$(count "$PROJ_BIN_DIR" "$PATH")" \
+    "$(count "$PROJ_MAN_DIR" "$MANPATH")" "$(count "$PROJ_DATA_DIR" "$XDG_DATA_DIRS")" \
+    "$(alias mamba >/dev/null 2>&1 && echo 1 || echo 0)" \
+    "$(complete -p proj | grep -c _proj_complete)" "${PROJ_ACTIVE-none}"
+' bash "$root")
+[ "$bash_state" = '1 1 1 1 1 none' ] ||
+  fail "idempotent Bash PATH, MANPATH, XDG data, alias, completion: $bash_state"
 pass "shell initialization is idempotent and provides command integration"
 
 zsh -f -c '
@@ -116,12 +134,18 @@ fake_bin="$tmp/fake-bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/micromamba" <<EOF
 #!/usr/bin/env sh
-printf '%s\n' '{"envs":["/opt/mamba/envs/atlas","/opt/mamba/envs/tools"]}'
+printf '%s\n' '{"envs":["/opt/mamba","/opt/mamba/envs/atlas","/opt/mamba/envs/tools"]}'
 EOF
 chmod +x "$fake_bin/micromamba"
-MAMBA_EXE="$fake_bin/micromamba" PATH="$fake_bin:$PATH" PROJ_HOME="$managed_home" \
-  "$root/bin/proj" python-env list | grep -q '^atlas$' ||
-  fail "micromamba environment discovery"
+python_envs=$(MAMBA_EXE="$fake_bin/micromamba" PATH="$fake_bin:$PATH" PROJ_HOME="$managed_home" \
+  "$root/bin/proj" python-env list | tr '\n' ' ')
+[ "$python_envs" = "atlas base tools " ] ||
+  fail "micromamba environment discovery: $python_envs"
+MAMBA_EXE="$fake_bin/micromamba" PATH="$fake_bin:$PATH" PROJ_HOME="$managed_home" PROJ_ACTIVE=atlas \
+  "$root/bin/proj" set-python-env base >/dev/null ||
+  fail "root prefix links as base"
+grep -q '^environment = "base"$' "$managed_metadata" ||
+  fail "base environment persisted"
 MAMBA_EXE="$fake_bin/micromamba" PATH="$fake_bin:$PATH" PROJ_HOME="$managed_home" PROJ_ACTIVE=atlas \
   "$root/bin/proj" set-python-env atlas >/dev/null ||
   fail "Python environment helper"
@@ -222,6 +246,39 @@ PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
   ' zsh "$root" "$project_root" || fail "transactional shell lifecycle"
 pass "activation and deactivation mutate and restore the parent Zsh"
 
+PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
+  bash --norc --noprofile -c '
+    fixture_root=$2
+    module() {
+      case $1 in
+        use|unuse) return 0 ;;
+        load)
+          export PROJ_ACTIVE=demo PROJ_ROOT=$fixture_root PROJ_MODULE=$2
+          export PROJ_MAMBA_ENV=demo DEMO_ACTIVE=yes LOADEDMODULES=$2
+          ;;
+        unload)
+          unset PROJ_ACTIVE PROJ_ROOT PROJ_MODULE PROJ_MAMBA_ENV DEMO_ACTIVE LOADEDMODULES
+          ;;
+      esac
+    }
+    micromamba() {
+      case $1 in
+        activate)
+          export CONDA_DEFAULT_ENV=$2 CONDA_SHLVL=$(( ${CONDA_SHLVL:-0} + 1 )) ;;
+        deactivate)
+          unset CONDA_DEFAULT_ENV; export CONDA_SHLVL=$(( ${CONDA_SHLVL:-1} - 1 )) ;;
+      esac
+    }
+    . "$1/shell/init.bash"
+    start=$PWD
+    proj activate demo >/dev/null || exit 11
+    [[ $PROJ_ACTIVE == demo && $PWD == "$2" && $DEMO_ACTIVE == yes ]] || exit 12
+    [[ $(proj current) == demo ]] || exit 13
+    proj deactivate >/dev/null || exit 14
+    [[ -z ${PROJ_ACTIVE-} && $PWD == "$start" && ${CONDA_SHLVL:-0} == 0 ]] || exit 15
+  ' bash "$root" "$project_root" || fail "transactional Bash lifecycle"
+pass "activation and deactivation mutate and restore the parent Bash"
+
 failing_root="$tmp/projects/failing"
 mkdir -p "$failing_root"
 cat > "$failing_root/project.toml" <<EOF
@@ -297,6 +354,12 @@ XDG_DATA_DIRS="$layout/share" TLDR_NETWORK_ENABLED=0 tldr proj | grep -q \
   'Register the current directory as a project' || fail "TLDR rendering"
 pass "global command, manual, and TLDR links are idempotent and usable"
 
+mkdir -p "$tmp/shadow/proj"
+printf 'raise SystemExit("shadowed")\n' >"$tmp/shadow/proj/__init__.py"
+(cd "$tmp/shadow" && "$root/bin/proj" --version) | grep -q '^proj ' ||
+  fail "working directory shadowed the installation"
+pass "launcher ignores proj packages in the working directory"
+
 conflict_bin="$tmp/conflict-bin"
 mkdir -p "$conflict_bin"
 printf 'conflict\n' > "$conflict_bin/proj"
@@ -313,5 +376,87 @@ PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
 grep -q 'Lmod' "$tmp/doctor" || fail "doctor Lmod diagnostic"
 grep -q 'module function' "$tmp/doctor" || fail "doctor module-function diagnostic"
 pass "doctor reports real host and shell integration state"
+
+version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$root/proj/__init__.py")
+[ "$("$root/bin/proj" --version)" = "proj $version" ] || fail "version output"
+grep -q "\"proj $version\"" "$root/share/man/man1/proj.1" || fail "manual version"
+grep -q "^  '--version:" "$root/shell/completions/_proj" || fail "version completion"
+pass "version is reported consistently"
+
+rc_home="$tmp/rc-home"
+mkdir -p "$rc_home"
+printf 'existing line\n' >"$rc_home/.bashrc"
+HOME="$rc_home" "$root/bin/proj" init --shell bash >/dev/null || fail "proj init"
+HOME="$rc_home" "$root/bin/proj" init --shell bash >/dev/null || fail "proj init rerun"
+[ "$(grep -c '>>> proj initialize >>>' "$rc_home/.bashrc")" = 1 ] ||
+  fail "proj init is not idempotent"
+grep -qF ". $root/shell/init.bash" "$rc_home/.bashrc" || fail "proj init adapter path"
+HOME="$rc_home" "$root/bin/proj" init --shell bash --reverse >/dev/null ||
+  fail "proj init --reverse"
+[ "$(cat "$rc_home/.bashrc")" = 'existing line' ] || fail "proj init --reverse residue"
+pass "proj init edits shell startup files idempotently and reversibly"
+
+install_home="$tmp/install-home"
+install_prefix="$tmp/opt/proj"
+mkdir -p "$install_home" "$tmp/work/sample"
+HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private \
+  --prefix "$install_prefix" --no-install-deps >"$tmp/install-output" 2>&1 ||
+  fail "private installation: $(cat "$tmp/install-output")"
+[ "$("$install_prefix/bin/proj" --version)" = "proj $version" ] || fail "installed version"
+[ ! -e "$install_prefix/tests" ] && [ -z "$(find "$install_prefix" -name __pycache__)" ] ||
+  fail "installation copied development files"
+grep -qF ". $install_prefix/shell/init.bash" "$install_home/.bashrc" ||
+  fail "installer shell initialization"
+grep -q '^registry = "~/.proj/envs"$' "$install_prefix/etc/config.toml" ||
+  fail "installer site configuration"
+printf 'schema = 1\nregistry = "~/custom"\n' >"$install_prefix/etc/config.toml"
+HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private \
+  --prefix "$install_prefix" --no-install-deps >/dev/null 2>&1 || fail "upgrade"
+grep -q custom "$install_prefix/etc/config.toml" || fail "upgrade replaced configuration"
+[ "$(grep -c '>>> proj initialize >>>' "$install_home/.bashrc")" = 1 ] ||
+  fail "upgrade duplicated shell initialization"
+HOME="$install_home" "$install_prefix/bin/proj" create sample \
+  --root "$tmp/work/sample" >/dev/null || fail "installed creation"
+[ -f "$install_home/custom/sample/project.toml" ] || fail "site registry location"
+mkdir -p "$tmp/occupied" && touch "$tmp/occupied/file"
+if sh "$root/install.sh" --yes --mode private --prefix "$tmp/occupied" \
+  --no-init --no-install-deps >/dev/null 2>&1; then
+  fail "installer overwrote an unrelated directory"
+fi
+pass "installer installs, initializes, upgrades, and refuses foreign directories"
+
+shared_group=$(id -gn)
+shared_prefix="$tmp/opt-shared/proj"
+shared_registry="$tmp/shared-envs"
+HOME="$install_home" sh "$root/install.sh" --yes --mode shared --group "$shared_group" \
+  --prefix "$shared_prefix" --shared-registry "$shared_registry" --no-init \
+  --no-install-deps >/dev/null 2>&1 || fail "shared installation"
+[ "$(stat -c %a "$shared_registry")" = 3770 ] || fail "shared registry mode"
+shared_proj="$shared_prefix/bin/proj"
+mkdir -p "$tmp/work/team"
+HOME="$install_home" "$shared_proj" create team --shared --root "$tmp/work/team" \
+  >/dev/null || fail "shared creation"
+HOME="$install_home" "$shared_proj" create crew --shared --group-writable \
+  --root "$tmp/work/team" >/dev/null || fail "group-writable creation"
+[ "$(stat -c '%a' "$shared_registry/team" "$shared_registry/team/project.toml" | tr '\n' ' ')" = \
+  '2755 644 ' ] || fail "owner-only shared permissions"
+[ "$(stat -c '%a' "$shared_registry/crew" "$shared_registry/crew/project.toml" | tr '\n' ' ')" = \
+  '2775 664 ' ] || fail "group-writable shared permissions"
+HOME="$install_home" "$shared_proj" config --env crew project.description=Crew >/dev/null &&
+  [ "$(stat -c %a "$shared_registry/crew/project.toml")" = 664 ] ||
+  fail "configuration write kept shared permissions"
+HOME="$install_home" "$shared_proj" list | grep -q '^team  *shared' ||
+  fail "shared scope listing"
+mkdir -p "$tmp/mamba/envs/team/conda-meta"
+printf '#!/usr/bin/env sh\necho %s\n' \
+  "'{\"envs\":[\"$tmp/mamba\",\"$tmp/mamba/envs/team\"]}'" >"$fake_bin/micromamba"
+MAMBA_EXE="$fake_bin/micromamba" HOME="$install_home" \
+  "$shared_proj" set-python-env --env team team >/dev/null || fail "shared Python link"
+grep -qF "environment = \"$tmp/mamba/envs/team\"" "$shared_registry/team/project.toml" ||
+  fail "shared Python environment is recorded by prefix"
+if HOME="$install_home" "$shared_proj" create loose --group-writable >/dev/null 2>&1; then
+  fail "--group-writable accepted without --shared"
+fi
+pass "shared installations create owner-only and group-writable environments"
 
 printf 'all tests passed\n'

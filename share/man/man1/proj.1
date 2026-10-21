@@ -1,4 +1,4 @@
-.TH PROJ 1 "July 2026" "proj 0.1.0" "User Commands"
+.TH PROJ 1 "October 2026" "proj 0.2.0" "User Commands"
 .SH NAME
 proj \- manage project development environments with Lmod
 .SH SYNOPSIS
@@ -7,7 +7,7 @@ proj \- manage project development environments with Lmod
 .RI [ options ]
 .SH DESCRIPTION
 .B proj
-is a metadata-driven project environment manager for Fedora and Zsh.
+is a metadata-driven project environment manager for Linux with Zsh or Bash.
 It coordinates Lmod modules, optional micromamba environments, project
 variables, paths, aliases, and lifecycle hooks.
 It does not replace Git, Lmod, or Python environment management.
@@ -15,6 +15,8 @@ It does not replace Git, Lmod, or Python environment management.
 Managed metadata is stored in
 .IR ~/.proj/envs/ name /project.toml
 and points to the actual project root.
+A shared installation adds a group registry whose environments every group
+member can activate.
 The active project is local to the current shell.
 .SH QUICK START
 .nf
@@ -27,19 +29,26 @@ proj module add compiler gcc/14
 .fi
 .SH COMMANDS
 .TP
-.BI "proj create " name " [--root " directory ]
+.BI "proj create " name " [--root " directory "] [--shared [--group-writable]]"
 Register a project. The root defaults to the current directory. Creates a
-valid starter document beneath
-.IR ~/.proj/envs ,
+valid starter document in the private registry,
 prints its location, and leaves optional fields commented.
+.B --shared
+creates it in the shared registry instead; only its creator may change it
+unless
+.B --group-writable
+is also given. Members cannot remove environments they do not own.
 .TP
 .B proj list
-List registered project environments.
+List registered project environments with their scope and owner. A private
+environment shadows a shared one with the same name. Invalid documents are
+reported and skipped.
 .TP
 .BI "proj activate " name
 Load the generated project Lmod module, activate the configured micromamba
 environment, change to the project root, and run startup hooks.
-This command requires the Zsh integration.
+This command requires the shell integration. Activating an environment owned
+by someone else prints a notice: its hooks and aliases run as you.
 .TP
 .B proj deactivate
 Reverse the activation performed in the current shell.
@@ -62,7 +71,9 @@ treated as a string. Environment-affecting changes take effect after
 reactivation.
 .TP
 .BR "proj set-python-env " "[--env " name "] " environment
-Validate and link an existing micromamba environment.
+Validate and link an existing micromamba environment, by name or by absolute
+prefix path. A shared environment records the prefix so every member activates
+the same Python environment.
 .B proj
 does not create the Python environment.
 .TP
@@ -87,14 +98,33 @@ List generated Lmod project modules and whether each cache entry is current.
 Show validated metadata and the effective generated environment.
 .TP
 .B proj doctor
-Check Zsh integration, Lmod, micromamba, metadata, and writable cache state.
+Check shell integration, Lmod, micromamba, site configuration, the shared
+registry, metadata, and writable cache state.
+.TP
+.BR "proj init " "[--shell zsh|bash] [--rc " file "] [--reverse]"
+Add a marked block that sources the shell integration to a startup file:
+.I ~/.zshrc
+or
+.I ~/.bashrc
+by default, detected from
+.BR SHELL .
+Rerunning replaces the block;
+.B --reverse
+removes it.
 .TP
 .B proj install
-Idempotently expose the canonical command beneath
+Idempotently link the command, manual, and TLDR page into the
+.IR bin " and " share
+directories beside the checkout (for example
 .I /tools/bin
-and this manual page beneath
-.IR /tools/share/man/man1 .
-Existing conflicting paths are never overwritten.
+for
+.IR /tools/proj ).
+Existing conflicting paths are never overwritten. Use
+.I install.sh
+for a standalone installation.
+.TP
+.B proj --version
+Print the installed proj version.
 .SH CONFIGURATION KEYS
 Generic configuration supports:
 .PP
@@ -120,14 +150,21 @@ proj config aliases.project-root='cd ${project.root}'
 .IR ~/.proj/envs/ name /project.toml
 Managed project metadata.
 .TP
+.IR PREFIX /etc/config.toml
+Site configuration written by the installer:
+.BR registry ,
+.BR shared_registry ,
+and
+.BR group .
+.TP
 .I ~/.config/proj/config.toml
-Optional global configuration.
+Optional user configuration; overrides site keys.
 .TP
 .I ~/.cache/proj/modulefiles
 Generated Lmod modulefile cache.
 .TP
-.I /tools/proj/shell/init.zsh
-Zsh integration that permits activation to modify the parent shell.
+.IR PREFIX /shell/init.zsh ", " PREFIX /shell/init.bash
+Shell integration that permits activation to modify the parent shell.
 .SH ENVIRONMENT
 .TP
 .B PROJ_ACTIVE
@@ -138,7 +175,13 @@ Override the managed registry home. Defaults to
 .IR ~/.proj .
 .TP
 .B PROJ_CONFIG
-Override the global configuration file.
+Override the user configuration file.
+.TP
+.B PROJ_SITE_CONFIG
+Override the site configuration file.
+.TP
+.BR PROJ_SHARED_REGISTRY ", " PROJ_GROUP
+Override the shared registry and its group.
 .TP
 .B PROJ_PROJECT_ROOTS
 Colon-separated additional metadata roots.
@@ -152,7 +195,8 @@ Override the public command directory during installation and shell setup.
 .B PROJ_GLOBAL_MAN
 Override the public manual root during installation and shell setup.
 .SH COMPLETION
-The Zsh adapter adds its completion directory to
+The Bash adapter registers a completion function. The Zsh adapter adds its
+completion directory to
 .B fpath
 and supports both earlier and later
 .B compinit
@@ -190,5 +234,6 @@ project. Status 2 indicates invalid configuration, unavailable integration, or
 unsafe state.
 .SH SEE ALSO
 .BR zsh (1),
+.BR bash (1),
 .BR module (1),
 .BR micromamba (1)

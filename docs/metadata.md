@@ -1,6 +1,7 @@
 # Project metadata
 
-Managed environments live at `~/.proj/envs/<name>/project.toml`. The metadata
+Managed environments live at `<registry>/<name>/project.toml`, by default
+`~/.proj/envs`, or in the shared registry when created with `--shared`. The metadata
 is a pointer to the actual project root, so the repository does not need a
 `project.toml` and may live anywhere.
 
@@ -50,6 +51,10 @@ shutdown = [["./scripts/stop-services"]]
 description = "Build the project"
 command = ["./scripts/build"]
 ```
+
+`project.shell` may be `zsh` or `bash`. `python.environment` is a micromamba
+environment name or an absolute prefix path; shared environments store the
+prefix so that every member resolves the same environment.
 
 Only `project.name` and `project.root` are required. Description defaults to
 the name, shell defaults to Zsh, and the managed starter enables micromamba as

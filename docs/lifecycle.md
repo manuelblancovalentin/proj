@@ -4,7 +4,7 @@
 
 1. Resolve and validate metadata without changing the shell.
 2. Generate or reuse the cached Lmod modulefile.
-3. Confirm the Zsh `module` function exists.
+3. Confirm the shell's `module` function exists.
 4. `module use` the managed module cache.
 5. `module load project/<name>`.
 6. Activate the configured micromamba environment.

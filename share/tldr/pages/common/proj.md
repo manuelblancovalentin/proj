@@ -4,9 +4,17 @@
 > Project metadata is stored under `~/.proj/envs`.
 > More information: <https://github.com/tldr-pages/tldr>.
 
+- Add proj to the current shell's startup file (Zsh or Bash):
+
+`proj init`
+
 - Register the current directory as a project:
 
 `proj create {{project_name}}`
+
+- Register a project that every member of the shared group can activate:
+
+`proj create {{project_name}} --shared`
 
 - Activate a project environment:
 

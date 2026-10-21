@@ -11,6 +11,21 @@ while [ -L "$script" ]; do
   esac
 done
 root=$(CDPATH= cd -P -- "$(dirname -- "$script")/.." && pwd)
-export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
+# Prefer the system interpreter so an active project environment cannot
+# replace proj's runtime. An installation may record another interpreter in
+# etc/python (for example where the system Python lacks tomllib and tomli is
+# installed elsewhere); PROJ_PYTHON overrides both.
+python=${PROJ_PYTHON-}
+if [ -z "$python" ] && [ -r "$root/etc/python" ]; then
+  IFS= read -r python <"$root/etc/python" || :
+fi
+: "${python:=/usr/bin/python3}"
 export PYTHONDONTWRITEBYTECODE=1
-exec /usr/bin/env python3 -m proj.cli "$@"
+# Replace the working directory on sys.path with this installation, so a local
+# proj/ cannot shadow it on any Python version (python3 -P needs 3.11).
+exec "$python" -c '
+import sys
+sys.path[0] = sys.argv.pop(1)
+from proj.cli import main
+raise SystemExit(main())
+' "$root" "$@"

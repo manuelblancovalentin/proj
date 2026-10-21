@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -138,15 +140,28 @@ def render_document(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def write_document(path: Path, data: dict[str, Any]) -> None:
+def write_document(path: Path, data: dict[str, Any], mode: int | None = None) -> None:
     content = render_document(data)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".toml.tmp")
     temporary.write_text(content)
+    # Replacing the file must keep shared permissions and group ownership.
+    if path.exists():
+        current = path.stat()
+        os.chmod(temporary, stat.S_IMODE(current.st_mode))
+        if temporary.stat().st_gid != current.st_gid:
+            try:
+                os.chown(temporary, -1, current.st_gid)
+            except PermissionError:
+                pass
+    elif mode is not None:
+        os.chmod(temporary, mode)
     temporary.replace(path)
 
 
-def create_document(path: Path, name: str, root: Path) -> None:
+def create_document(
+    path: Path, name: str, root: Path, mode: int | None = None
+) -> None:
     if path.exists():
         raise ProjError(f"environment {name!r} already exists at {path}")
     data = {
@@ -154,7 +169,7 @@ def create_document(path: Path, name: str, root: Path) -> None:
         "project": {"name": name, "root": str(root.resolve())},
         "python": {"manager": "micromamba"},
     }
-    write_document(path, data)
+    write_document(path, data, mode)
 
 
 def get_dotted(data: dict[str, Any], dotted: str) -> Any:
