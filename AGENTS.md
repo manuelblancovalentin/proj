@@ -34,9 +34,12 @@ activation.
   Keep `core.sh` portable between Bash and Zsh.
 - `proj init` owns the marked `# >>> proj initialize >>>` block in startup
   files; it is idempotent and `--reverse` removes it.
-- Use `/usr/bin/python3` (3.11+) with `-P` and the standard library only. This
-  prevents an active project environment or the working directory from
-  changing proj's runtime.
+- Use `/usr/bin/python3` and the standard library only (falling back to
+  `tomli` before 3.11; minimum 3.9). This prevents an active project
+  environment from changing proj's runtime. Only `PREFIX/etc/python`
+  (recorded by the installer when the system Python cannot read TOML) or
+  `PROJ_PYTHON` may select another interpreter. The launcher replaces the
+  working directory on `sys.path` with the tool root.
 - Never emulate or fall back from Lmod.
 - Project configuration is metadata-driven; never hardcode a project name.
 - Managed metadata lives at `<registry>/<name>/project.toml` (private default

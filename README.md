@@ -71,7 +71,9 @@ Requirements:
 
 - Linux with Zsh 5.9+ or Bash 4.4+
 - Lmod, initialized so the `module` shell function is available
-- `/usr/bin/python3` 3.11 or newer (for `tomllib`)
+- Python 3.11+, or 3.9+ with `tomli`. `/usr/bin/python3` is preferred; if it
+  cannot read TOML, the installer records the `python3` on `PATH` in
+  `PREFIX/etc/python` (`PROJ_PYTHON` overrides both)
 - micromamba when a Python environment is configured
 
 Run the installer from a checkout, or pipe it from GitHub:

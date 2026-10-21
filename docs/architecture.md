@@ -17,9 +17,12 @@ the tool root, completion registration, the first-prompt hook, the dots panel).
 Activation, deactivation, rollback, and the `proj` function live in the
 portable `shell/core.sh`, sourced by both.
 
-The CLI deliberately runs with `/usr/bin/python3 -P` and only the standard
-library, so neither an activated project nor the working directory can replace
-its runtime.
+The CLI deliberately runs with `/usr/bin/python3` and only the standard
+library (plus `tomli` before Python 3.11), so an activated project cannot
+replace its runtime. Where the system interpreter cannot read TOML, the
+installer records another `python3` in `PREFIX/etc/python`; `PROJ_PYTHON`
+overrides both. The launcher puts the tool root in place of the working
+directory on `sys.path`, so a local `proj/` directory cannot shadow it.
 
 ## Active state
 

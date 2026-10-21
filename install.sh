@@ -196,11 +196,30 @@ say "Installing proj $version"
 
 # --- Requirements ------------------------------------------------------------
 
-# proj always runs with the system interpreter so project environments cannot
-# replace its runtime.
-if ! /usr/bin/python3 -c 'import sys, tomllib; sys.exit(sys.version_info < (3, 11))' \
-  2>/dev/null; then
-  die "proj needs /usr/bin/python3 3.11 or newer (with tomllib)"
+# proj prefers the system interpreter so project environments cannot replace
+# its runtime. Where that one cannot read TOML (Python before 3.11 without
+# tomli), record the python3 found on PATH instead.
+reads_toml() {
+  "$1" -c '
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli
+sys.exit(sys.version_info < (3, 9))
+' 2>/dev/null
+}
+python=
+for candidate in /usr/bin/python3 "$(command -v python3 2>/dev/null || true)"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ] && reads_toml "$candidate"; then
+    python=$candidate
+    break
+  fi
+done
+[ -n "$python" ] ||
+  die "proj needs Python 3.11+, or Python 3.9+ with tomli (python3 -m pip install tomli)"
+if [ "$python" != /usr/bin/python3 ]; then
+  warn "/usr/bin/python3 cannot read TOML; proj will run with $python"
 fi
 
 # Shells to initialize. Many people run a shell other than their login shell
@@ -396,6 +415,12 @@ if [ "$write_config" = 1 ]; then
     fi
   } >"$config_file"
   chmod 644 "$config_file"
+fi
+if [ "$python" = /usr/bin/python3 ]; then
+  rm -f "$prefix/etc/python"
+else
+  mkdir -p "$prefix/etc"
+  printf '%s\n' "$python" >"$prefix/etc/python"
 fi
 
 if [ "$mode" = shared ] && [ -n "$shared_registry" ]; then

@@ -358,7 +358,15 @@ mkdir -p "$tmp/shadow/proj"
 printf 'raise SystemExit("shadowed")\n' >"$tmp/shadow/proj/__init__.py"
 (cd "$tmp/shadow" && "$root/bin/proj" --version) | grep -q '^proj ' ||
   fail "working directory shadowed the installation"
-pass "launcher ignores proj packages in the working directory"
+cat >"$tmp/recording-python" <<EOF
+#!/bin/sh
+touch "$tmp/python-used"
+exec /usr/bin/python3 "\$@"
+EOF
+chmod +x "$tmp/recording-python"
+PROJ_PYTHON="$tmp/recording-python" "$root/bin/proj" --version >/dev/null &&
+  [ -e "$tmp/python-used" ] || fail "PROJ_PYTHON interpreter override"
+pass "launcher ignores proj packages in the working directory and honors PROJ_PYTHON"
 
 conflict_bin="$tmp/conflict-bin"
 mkdir -p "$conflict_bin"
@@ -416,6 +424,12 @@ grep -q custom "$install_prefix/etc/config.toml" || fail "upgrade replaced confi
 [ "$(grep -c '>>> proj initialize >>>' "$install_home/.bashrc")" = 1 ] ||
   fail "upgrade duplicated shell initialization"
 [ ! -e "$install_home/.zshrc" ] || fail "installer initialized an unused shell"
+[ ! -e "$install_prefix/etc/python" ] || fail "installer recorded a needless interpreter"
+rm -f "$tmp/python-used"
+printf '%s\n' "$tmp/recording-python" >"$install_prefix/etc/python"
+"$install_prefix/bin/proj" --version >/dev/null && [ -e "$tmp/python-used" ] ||
+  fail "recorded installation interpreter"
+rm -f "$install_prefix/etc/python"
 HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private \
   --prefix "$install_prefix" --shell zsh,bash --no-install-deps >/dev/null 2>&1 ||
   fail "multi-shell installation"
