@@ -447,6 +447,23 @@ if sh "$root/install.sh" --yes --mode private --prefix "$tmp/occupied" \
 fi
 pass "installer installs, initializes, upgrades, and refuses foreign directories"
 
+# Ctrl+C at a prompt must abort, not accept the default. Exercise every POSIX
+# shell available here; Debian and Ubuntu run install.sh with dash.
+interrupt_home="$tmp/interrupt-home"
+mkdir -p "$interrupt_home"
+for posix_shell in sh dash; do
+  command -v "$posix_shell" >/dev/null 2>&1 || continue
+  for prompt_args in "--mode private" "--mode private --prefix $tmp/interrupted/proj"; do
+    # shellcheck disable=SC2086
+    status=$(HOME="$interrupt_home" SHELL=/bin/bash "$root/tests/interrupt" \
+      "$posix_shell" "$root/install.sh" $prompt_args --no-install-deps 2>/dev/null)
+    [ "$status" = 130 ] || fail "$posix_shell installer ignored Ctrl+C ($prompt_args): $status"
+    [ ! -e "$tmp/interrupted" ] && [ -z "$(ls -A "$interrupt_home")" ] ||
+      fail "$posix_shell installer left files after Ctrl+C ($prompt_args)"
+  done
+done
+pass "Ctrl+C at an installer prompt aborts and leaves nothing behind"
+
 shared_group=$(id -gn)
 shared_prefix="$tmp/opt-shared/proj"
 shared_registry="$tmp/shared-envs"

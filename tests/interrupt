@@ -1,0 +1,41 @@
+#!/usr/bin/python3
+"""Run a command on a pseudo-terminal and press Ctrl+C at its first prompt.
+
+Usage: tests/interrupt COMMAND [ARG...]
+
+Prints the command's exit status. A prompt is any output ending in "]: ",
+the installer's "Question [default]: " form.
+"""
+
+import os
+import pty
+import select
+import sys
+import time
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(sys.argv[1], sys.argv[1:])
+
+output = b""
+interrupted = False
+deadline = time.monotonic() + 30
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([fd], [], [], 0.2)
+    if ready:
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        output += chunk
+    if not interrupted and output.rstrip(b" ").endswith(b"]:"):
+        os.write(fd, b"\x03")
+        interrupted = True
+else:
+    os.kill(pid, 9)
+
+_, status = os.waitpid(pid, 0)
+sys.stderr.write(output.decode(errors="replace"))
+print(os.waitstatus_to_exitcode(status) if interrupted else "no-prompt")

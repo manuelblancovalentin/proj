@@ -26,6 +26,9 @@ system_init=
 install_deps=
 batch=0
 tmp=
+stage=
+created_prefix=
+installed=0
 
 usage() {
   cat <<EOF
@@ -63,10 +66,31 @@ note() { printf '  - %s\n' "$*"; }
 warn() { printf 'proj-install: warning: %s\n' "$*" >&2; }
 die() { printf 'proj-install: error: %s\n' "$*" >&2; exit 1; }
 
+# Remove temporary files and, unless the installation finished, a prefix that
+# this run created, so an interrupted or failed run can simply start over.
 cleanup() {
   if [ -n "$tmp" ]; then rm -rf -- "$tmp"; fi
+  if [ -n "$stage" ]; then rm -rf -- "$stage"; fi
+  if [ "$installed" = 0 ] && [ -n "$created_prefix" ]; then
+    rm -rf -- "$created_prefix"
+  fi
 }
-trap cleanup EXIT HUP INT TERM
+
+# A trapped INT would otherwise resume the script after the handler, which
+# turned Ctrl+C at a prompt into "accept the default". Exit explicitly.
+abort() {
+  trap - EXIT HUP INT TERM
+  cleanup
+  if [ "$installed" = 1 ]; then
+    printf '\nproj-install: aborted; proj is installed in %s, rerun to finish setup\n' \
+      "$prefix" >&2
+  else
+    printf '\nproj-install: aborted; nothing was installed\n' >&2
+  fi
+  exit 130
+}
+trap cleanup EXIT
+trap abort HUP INT TERM
 
 interactive() {
   [ "$batch" = 0 ] && (: </dev/tty) 2>/dev/null
@@ -337,8 +361,17 @@ while :; do
   fi
   prefix=$(expand_home "$prefix")
   problem=
+  new_prefix=
   case $prefix in
-    /*) ;;
+    /*)
+      # Remember the top-most directory this run creates, so cleanup also
+      # removes parents that mkdir -p adds.
+      probe=$prefix
+      while [ -n "$probe" ] && ! [ -e "$probe" ]; do
+        new_prefix=$probe
+        probe=${probe%/*}
+      done
+      ;;
     *) problem="the installation directory must be an absolute path" ;;
   esac
   if [ -z "$problem" ] && [ -e "$prefix" ]; then
@@ -356,11 +389,13 @@ while :; do
     problem="$prefix is not writable"
   fi
   [ -z "$problem" ] && break
+  if [ -n "$new_prefix" ] && [ -d "$new_prefix" ]; then rm -rf -- "$new_prefix"; fi
   interactive || die "$problem"
   warn "$problem"
   prefix=
 done
 prefix=$(CDPATH= cd -- "$prefix" && pwd -P)
+[ -n "$new_prefix" ] && created_prefix=$new_prefix
 
 upgrade=0
 [ -f "$prefix/$MARKER" ] && upgrade=1
@@ -399,6 +434,7 @@ for item in $INSTALLED_ITEMS; do
   mv "$stage/$item" "$prefix/$item"
 done
 rmdir "$stage"
+stage=
 printf '%s\n' "$version" >"$prefix/$MARKER"
 chmod go+rx "$prefix"
 
@@ -436,6 +472,7 @@ if [ "$mode" = shared ] && [ -n "$shared_registry" ]; then
   fi
 fi
 
+installed=1
 if [ "$upgrade" = 1 ]; then
   say "Upgraded proj in $prefix"
 else
