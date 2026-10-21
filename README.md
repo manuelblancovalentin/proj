@@ -1,248 +1,759 @@
 # proj
 
-`proj` is a small, metadata-driven project environment manager for Linux with
-Zsh or Bash. It coordinates Lmod and optional conda-family Python environments
-(micromamba, conda, or mamba); it does
-not replace Git, Lmod, or Python environment management.
+`proj` gives every project a named, reversible shell environment. One
+command, `proj activate <name>`, loads the project's toolchains through
+[Lmod](https://lmod.readthedocs.io), activates its Python environment
+(micromamba, conda, or mamba), sets its variables, paths, and aliases, moves
+you to the project, and runs its startup hooks. `proj deactivate` undoes all
+of it. Environments can be private or shared with a Unix group, so a whole
+team on one server activates the same, consistent setup.
 
-## Quick start
+It runs on Linux with Zsh or Bash, needs nothing beyond the system Python
+and Lmod, and is installed with a single script, with or without `sudo`.
 
-From an existing project directory:
-
-```zsh
-proj create atlas
-proj activate atlas
-proj config project.description="Atlas development environment"
-proj set-python-env atlas
-proj module add compiler gcc/14
+```console
+$ proj activate atlas
+ ✅ - Project 'atlas' activated 🚀
+$ proj status
+Project:      atlas
+Root:         /projects/atlas
+Metadata:     /home/alice/.proj/envs/atlas/project.toml
+Lmod module:  project/atlas
+Python env:   atlas (conda)
+State:        consistent
+$ proj deactivate
+ ✅ - Project 'atlas' deactivated ✨
 ```
 
-`proj create` registers the current directory and creates:
+## Table of contents
 
-```text
-~/.proj/envs/atlas/project.toml
-```
+- [Why proj](#why-proj)
+- [Concepts: what a proj environment is](#concepts-what-a-proj-environment-is)
+- [Installation](#installation)
+  - [Requirements](#requirements)
+  - [Running the installer](#running-the-installer)
+  - [Installer options](#installer-options)
+  - [Upgrading and uninstalling](#upgrading-and-uninstalling)
+  - [Using a checkout in place](#using-a-checkout-in-place)
+- [Quick start](#quick-start)
+- [Creating and managing environments](#creating-and-managing-environments)
+  - [Create, list, and inspect](#create-list-and-inspect)
+  - [Activate and deactivate](#activate-and-deactivate)
+  - [Python environments](#python-environments)
+  - [Variables, paths, and aliases](#variables-paths-and-aliases)
+  - [Hooks](#hooks)
+  - [Renaming and deleting](#renaming-and-deleting)
+- [Toolchains and components (Lmod modules)](#toolchains-and-components-lmod-modules)
+  - [Adding modules to an environment](#adding-modules-to-an-environment)
+  - [Making software available as a module](#making-software-available-as-a-module)
+- [Shared servers](#shared-servers)
+  - [Administrator setup](#administrator-setup)
+  - [Per-user setup](#per-user-setup)
+  - [Creating shared environments](#creating-shared-environments)
+  - [Permissions and trust](#permissions-and-trust)
+- [Configuration](#configuration)
+  - [Configuration files and keys](#configuration-files-and-keys)
+  - [Environment variables](#environment-variables)
+- [Project metadata reference](#project-metadata-reference)
+- [Command reference](#command-reference)
+- [Advanced topics](#advanced-topics)
+  - [How activation works](#how-activation-works)
+  - [State drift and `proj status`](#state-drift-and-proj-status)
+  - [Additional metadata roots](#additional-metadata-roots)
+  - [Shell integration, completion, and prompts](#shell-integration-completion-and-prompts)
+  - [Customizing `proj info` for a site](#customizing-proj-info-for-a-site)
+  - [Choosing the Python interpreter that runs proj](#choosing-the-python-interpreter-that-runs-proj)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
 
-It prints that path after creation. The generated file is immediately valid:
-only the schema, name, root, and the configured `python.manager` (default
-`micromamba`) are
-active. Optional fields and examples are present but commented out.
+## Why proj
 
-Configuration defaults to the active project:
+Most research and engineering machines end up with the same problem: each
+project needs a particular compiler, a particular CUDA or FPGA toolchain, a
+particular Python environment, a few variables, and a working directory, and
+people rebuild that state by hand in every terminal. Existing tools each cover
+part of it:
 
-```zsh
-proj config project.description="New description"
-proj config project.description
-proj config environment.ATLAS_MODE=development
-proj config aliases.atlas-root='cd ${project.root}'
-proj module list compiler
-proj module add toolchain cmake/3.30
-proj module remove toolchain cmake/3.30
-```
+| Tool | What it does well | What is missing for this job |
+|---|---|---|
+| Lmod alone (`module load`, collections) | Loads and unloads software cleanly, with dependency and conflict handling | Knows nothing about Python environments, project directories, hooks, or who owns a setup |
+| conda / mamba / micromamba alone | Python and binary packages | Does not manage system toolchains, modules, or per-project shell state |
+| direnv | Per-directory variables, loaded automatically on `cd` | Implicit activation on directory change, configuration inside the repository, no clean unload of loaded software, no sharing model |
+| Spack environments, Nix, devbox | Reproducible builds of whole software stacks | Heavy to adopt on an existing server; they replace how software is installed rather than coordinating what is already there |
+| Shell scripts you `source` | Anything you write | Not reversible, not validated, and every project reinvents them |
 
-Use `--env atlas` with configuration commands when the environment is not
-active. When `PROJ_ACTIVE` is set, it is always preferred; the micromamba or
-Conda environment name (including `base`) is never used to select a project.
-Reactivate after a change that affects the loaded environment.
+`proj` is deliberately the thin layer that coordinates those tools instead of
+replacing them:
 
-Inspect the active environment as a bordered, colored panel:
+- **Lmod stays authoritative** for software, variables, paths, aliases, and
+  dependency reference counts. Every proj environment becomes a generated Lmod
+  module, so deactivation is exactly Lmod's unload.
+- **Your Python manager stays authoritative** for Python. proj links an
+  existing environment; it never creates or modifies one.
+- **Activation is explicit.** Opening a shell or changing directory never
+  activates anything; only `proj activate` does.
+- **Metadata lives outside the repository**, under `~/.proj/envs` or a shared
+  registry, so it works for repositories you cannot or do not want to change.
+- **Sharing is built in**, with ownership and Unix-group permissions instead
+  of a server or database.
+- **It is small and dependency-free**: the system Python standard library, a
+  POSIX installer, and shell adapters that start no processes at login.
 
-```zsh
-proj info
-proj info --env atlas
-```
+## Concepts: what a proj environment is
 
-The panel presents the effective metadata: identity, paths, Python selection,
-all four module categories, variables, aliases, hooks, and future task
-definitions. `--project` remains accepted as a compatibility alias, but new
-documentation and completion consistently use `--env`.
+A **proj environment** ("env") is a named TOML document,
+`<registry>/<name>/project.toml`, that points at a project directory and
+describes the shell state the project needs:
 
-List and link existing Python environments:
+- the **project root** to work in;
+- **Lmod modules** grouped into four categories: `compiler`, `toolchain`,
+  `application`, and `project`;
+- an optional **Python environment** and the **manager** that activates it;
+- **environment variables**, **PATH additions**, and **aliases**;
+- **startup and shutdown hooks** (commands to run on activation and
+  deactivation).
 
-```zsh
-proj python-env list
-proj set-python-env atlas
-proj set-python-env atlas --manager conda
-```
+An environment contains no software and no copy of your project. It is a
+recipe. When you activate it, proj renders it into an Lmod modulefile,
+`~/.cache/proj/modulefiles/project/<name>.lua`, and loads that module. The
+module declares `family("project")`, so Lmod guarantees that **one proj
+environment is active per shell**. Different terminals can have different
+environments active at the same time.
 
-The second command validates that the environment exists. `proj` never creates
-or replaces Python environments; use `micromamba create`, `conda create`, or
-`mamba create` for that.
+Environments live in **registries**:
 
-The Python manager is per project (`python.manager`): `micromamba`, `conda`,
-or `mamba`. New projects, `proj python-env list`, and `set-python-env` use the
-configured default (`python_manager` in the configuration, for example
-`"conda"` on a host with a shared Miniforge) unless `--manager` is given.
-Activation calls that manager's shell function; a `mamba` without
-`mamba shell init` falls back to `conda`, which manages the same
-environments.
+- the **private registry**, `~/.proj/envs` by default, visible only to you;
+- in a shared installation, the **shared registry**, `/opt/proj/envs` by
+  default, visible to every member of a Unix group.
 
 ## Installation
 
-Requirements:
+### Requirements
 
-- Linux with Zsh 5.9+ or Bash 4.4+
-- Lmod, initialized so the `module` shell function is available
-- Python 3.11+, or 3.9+ with `tomli`. `/usr/bin/python3` is preferred; if it
-  cannot read TOML, the installer records the `python3` on `PATH` in
-  `PREFIX/etc/python` (`PROJ_PYTHON` overrides both)
-- micromamba, conda, or mamba, with its shell integration initialized, when a
-  project declares a Python environment
+- Linux, with Zsh 5.9+ or Bash 4.4+ (both can be used on the same machine).
+- [Lmod](https://lmod.readthedocs.io), initialized so that `module` is a shell
+  function (`type module`). The installer can install it for you.
+- Python 3.11+, or Python 3.9+ with `tomli`. proj prefers `/usr/bin/python3`
+  so a project's Python can never replace proj's own runtime.
+- Optional: micromamba, conda, or mamba, with its shell integration
+  initialized, for projects that use a Python environment.
 
-Run the installer from a checkout, or pipe it from GitHub:
+### Running the installer
+
+From GitHub:
 
 ```sh
-sh install.sh
 curl -fsSL https://raw.githubusercontent.com/manuelblancovalentin/proj/master/install.sh | sh
 ```
 
-Like the conda installer, it asks for each choice with a default; `--yes`
-accepts the defaults and `--help` lists the flags for unattended installs:
-
-- **Mode**: `private` (only you) or `shared` (members of a group, default
-  `proj`). Shared is the default when run as root.
-- **Location**: default `/opt/proj`; a private install by a user who cannot
-  write `/opt` defaults to `~/.local/opt/proj`. Any directory works.
-- **Registries**: where private environments live (default `~/.proj/envs`)
-  and, in shared mode, the group registry (default `PREFIX/envs`).
-- **Shells**: Zsh and Bash are both supported. The installer asks about each
-  installed shell, suggesting yes for the one running the installer, your
-  login shell, and any shell that already has a startup file; `--shell
-  zsh,bash` picks explicitly. Each yes runs `proj init`, which adds a marked
-  block to `~/.zshrc` or `~/.bashrc`. As root it can instead add the block to
-  the system-wide `zshrc`/`bash.bashrc` for every user.
-- **Python manager**: the default for new projects; the first of micromamba,
-  conda, and mamba found is suggested. `sudo` hides your `PATH`, so name an
-  existing conda explicitly (`--python-manager conda`). Rerunning with
-  `--python-manager` on an existing installation updates just that setting.
-- **Dependencies**: if Lmod is missing it offers the distribution package
-  (`apt-get install lmod`, `dnf install Lmod`), which needs sudo. If no
-  conda-family manager exists it offers micromamba's official per-user
-  installer.
-
-Choices are written to `PREFIX/etc/config.toml`. Rerunning the installer on
-the same prefix upgrades the code and keeps that configuration. To uninstall,
-run `proj init --reverse` and remove the prefix.
-
-A checkout can also be used in place, as on legatum: `proj install` links the
-command, manual, and TLDR page into the `bin/` and `share/` directories beside
-the checkout (`/tools/bin` for `/tools/proj`), and the startup file sources
-`shell/init.zsh` or `shell/init.bash` directly.
-
-The adapter adds the command, manual, and TLDR directories to their search
-paths exactly once, defines the parent-shell `proj` function, and provides
-`mamba` as a shorter alias for `micromamba` after shell startup completes,
-unless a real `mamba` exists. Deferring that alias lets micromamba's generated
-shell hook parse safely.
-
-Both adapters register native completion for commands, configuration keys,
-module categories, Python environments, and registered project names.
-Discovery happens only after Tab is pressed, never during shell startup.
-
-## Sharing environments
-
-A shared installation adds a group registry (mode `3770`: setgid keeps the
-group on new files, sticky stops members from deleting or renaming other
-people's environments). Every group member can activate every shared
-environment:
+Or from a checkout:
 
 ```sh
-proj create atlas --shared                    # only you can change it
-proj create atlas --shared --group-writable   # any group member can change it
-proj list                                     # SCOPE and OWNER columns
+git clone https://github.com/manuelblancovalentin/proj.git
+sh proj/install.sh
 ```
 
-Private environments keep working alongside shared ones, and a private
-environment shadows a shared one of the same name. In a shared environment,
-`proj set-python-env` records the environment's prefix path instead of the name,
-so every member activates the same Python environment; that prefix and the
-project root must be readable by the group.
+Like the conda installer, it asks one question at a time and shows the
+default in brackets; press Enter to accept it, or Ctrl+C at any point to
+abort (nothing is left behind). It asks for:
 
-Activation is a trust boundary: hooks and aliases from someone else's
-environment run as you, and proj prints a notice when you activate an
-environment you do not own. A group-writable environment lets every member
-change those hooks. World-writable metadata is always refused.
+1. **Mode**: `private` (just you) or `shared` (members of a Unix group).
+2. **Location**: `/opt/proj` by default, or `~/.local/opt/proj` when you
+   cannot write to `/opt`. Any directory works; no `sudo` is needed for a
+   private install in your home directory.
+3. **Registries**: where private environments live (`~/.proj/envs`) and, in
+   shared mode, where shared ones live (`PREFIX/envs`).
+4. **Python manager**: the default for new environments (`micromamba`,
+   `conda`, or `mamba`); the first one found is suggested.
+5. **Shells**: for each installed shell, whether to add proj to its startup
+   file. Yes is suggested for the shell you are running, your login shell,
+   and any shell that already has a startup file.
 
-Completion follows the full command hierarchy. For example:
+It also checks the requirements and offers to install what is missing: Lmod
+through your distribution (`apt-get install lmod`, `dnf install Lmod`; this
+needs `sudo`) and, if no Python manager exists, micromamba through its
+official per-user installer.
 
-```text
-proj activate <Tab>                  registered project environments
-proj module add <Tab>                supported module categories
-proj module add toolchain <Tab>      modules currently available in Lmod
-proj module remove toolchain <Tab>   modules configured on the active project
-```
+Open a new shell afterwards and run:
 
-The four categories organize project metadata; Lmod has no matching universal
-category system. Consequently, `add` offers the available Lmod namespace after
-you choose a category.
-
-Lifecycle messages use the dots `ok`, `info`, and `error` helpers when dots is
-loaded. A Unicode fallback keeps proj fully usable on its own.
-
-After sourcing the adapter, read the full command reference with:
-
-```zsh
-man proj
-tldr proj
-```
-
-Check the host with `proj doctor`.
-
-## Command overview
-
-```text
-proj create <name> [--root <directory>] [--shared [--group-writable]]
-proj list
-proj activate <name>
-proj deactivate
-proj current
-proj status
-proj info [--env <name>]
-proj config [--env <name>] <key>[=<value>]
-proj set-python-env [--env <name>] <environment>
-proj python-env list
-proj module {list|add|remove} <category> [module] [--env <name>]
-proj env list
-proj env show <name>
-proj doctor
-proj init [--shell zsh|bash] [--rc <file>] [--reverse]
-proj install
+```sh
 proj --version
+proj doctor
 ```
 
-Task definitions are represented in the schema, but `proj run` is intentionally
-not implemented yet. A guided terminal UI may be added later; the primary
-workflow remains dependency-free and scriptable.
+### Installer options
 
-## Global configuration
+Every question has a flag, and `--yes` accepts all defaults, for unattended
+installs:
 
-Configuration is layered: the installer's site file `PREFIX/etc/config.toml`,
-then the optional user file `~/.config/proj/config.toml`, which overrides it
-key by key. Both accept the same keys; unknown keys are rejected:
+| Option | Meaning |
+|---|---|
+| `--prefix DIR` | Installation directory |
+| `--mode private\|shared` | Private install, or shared with a group |
+| `--group NAME` | Group for shared mode (default `proj`) |
+| `--registry DIR` | Private registry (default `~/.proj/envs`; `~` stays per user) |
+| `--shared-registry DIR` | Shared registry (default `PREFIX/envs`) |
+| `--python-manager NAME` | Default Python manager: `micromamba`, `conda`, or `mamba` |
+| `--shell zsh,bash` | Shells to initialize |
+| `--init` / `--no-init` | Add or skip the per-user startup-file block |
+| `--system-init` / `--no-system-init` | As root, add or skip the block in the system-wide `zshrc`/`bash.bashrc` |
+| `--install-deps` / `--no-install-deps` | Install or skip missing Lmod and micromamba |
+| `--source DIR`, `--ref REF` | Install from a local tree, or download another branch or tag |
+| `-y`, `--yes` | Never prompt |
+
+With `curl … | sh`, pass options after `sh -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/manuelblancovalentin/proj/master/install.sh | sh -s -- --yes --prefix ~/opt/proj
+```
+
+### Upgrading and uninstalling
+
+Run the installer again with the same prefix. It replaces the code, keeps
+`PREFIX/etc/config.toml`, and never duplicates the startup-file block. Passing
+`--python-manager` during an upgrade changes only that setting.
+
+To uninstall, remove the startup-file blocks, then the prefix:
+
+```sh
+proj init --shell zsh --reverse
+proj init --shell bash --reverse
+rm -rf /opt/proj
+```
+
+Private environments in `~/.proj/envs` survive both. In a shared install, the
+default shared registry `/opt/proj/envs` is inside the prefix, so move it
+first if you want to keep the shared environments.
+
+### Using a checkout in place
+
+A git checkout can be used directly instead of an installation. `proj
+install` links the command, manual, and TLDR page into the `bin/` and
+`share/` directories next to the checkout (for `/tools/proj`, that is
+`/tools/bin/proj` and `/tools/share/...`), and refuses to overwrite anything
+it did not create. `proj init` then adds the checkout's adapter to your
+startup file:
+
+```sh
+/tools/proj/bin/proj install
+/tools/proj/bin/proj init
+```
+
+## Quick start
+
+```sh
+cd ~/projects/atlas
+proj create atlas                              # register this directory
+proj config --env atlas project.description="Atlas simulation"
+proj module add compiler gcc/14 --env atlas    # an Lmod module
+proj set-python-env --env atlas atlas          # an existing Python environment
+proj activate atlas
+```
+
+Configure with `--env` before activating, or activate first and configure the
+active environment. Changes to an active environment take effect after
+`proj deactivate && proj activate atlas`.
+
+## Creating and managing environments
+
+### Create, list, and inspect
+
+```sh
+proj create <name>                 # register the current directory
+proj create <name> --root DIR      # register another directory
+proj list                          # NAME, SCOPE, OWNER, DESCRIPTION, ROOT
+proj info [--env <name>]           # every effective setting
+proj env show <name>               # settings plus the generated module path
+proj env list                      # generated modules and whether they are current
+```
+
+Names may contain letters, digits, dots, underscores, and dashes, and must
+not already be in use. `proj create` writes a valid starter document and
+prints its path: only the name, root, and Python manager are active, and every
+optional field is present as a commented-out example. Edit it with `proj
+config` (validated and atomic) or by hand.
+
+`proj config` reads or writes one key at a time, for the active environment
+unless `--env` is given:
+
+```sh
+proj config project.description="Atlas simulation"   # write
+proj config project.description                      # read
+proj config --env atlas python.environment            # another environment
+```
+
+Values use TOML syntax when needed (arrays, quoted strings); plain text is a
+string. Unknown keys are rejected, and a change that would make the document
+invalid is rolled back. See the
+[metadata reference](#project-metadata-reference) for every key.
+
+### Activate and deactivate
+
+```sh
+proj activate atlas
+proj current            # prints the active name; exits 1 when none is active
+proj status             # active environment and whether its state drifted
+proj deactivate
+```
+
+Activation, in order: validate the metadata, generate or reuse the modulefile,
+load it with Lmod (which loads every module dependency), activate the Python
+environment, change to the project root, and run startup hooks. If any step
+fails, everything already done is undone. Deactivation runs shutdown hooks,
+deactivates exactly the Python environment level proj created, unloads the
+module, and returns you to the previous directory.
+
+Only one environment is active per shell; deactivate before activating
+another.
+
+### Python environments
+
+proj links an **existing** environment; create it with your manager first:
+
+```sh
+conda create -n atlas python=3.12          # or micromamba / mamba create
+proj python-env list                       # environments of the default manager
+proj set-python-env --env atlas atlas
+proj set-python-env --env atlas atlas --manager mamba
+proj set-python-env --env atlas /path/to/prefix   # by absolute prefix
+```
+
+Each environment records its manager in `python.manager`: `micromamba`,
+`conda`, or `mamba`. New environments use the configured default
+(`python_manager`, set by the installer). Activation calls that manager's shell
+function, so its shell integration must be initialized (`micromamba shell
+init`, `conda init zsh`, `mamba shell init`). A `mamba` that was never
+initialized falls back to `conda`, which manages the same environments. The
+manager's root environment appears as `base`.
+
+### Variables, paths, and aliases
+
+```sh
+proj config environment.ATLAS_MODE=development
+proj config environment.ATLAS_DATA='${project.root}/data'
+proj config paths.prepend='["${project.root}/bin", "${project.root}/scripts"]'
+proj config aliases.atlas-root='cd ${project.root}'
+```
+
+Values may use four placeholders and nothing else: `${project.name}`,
+`${project.root}`, `${project.metadata}`, and `${user.home}`. Shell syntax,
+command substitution, and other variables are rejected. PATH additions must
+be absolute and stay inside the project root. Lmod applies and reverses all of
+these.
+
+### Hooks
+
+Hooks are commands run on activation (`startup`) and deactivation
+(`shutdown`), in the project root, without a shell. Each hook is an argument
+array:
+
+```sh
+proj config hooks.startup='[["./scripts/check-licenses"], ["make", "-s", "env-check"]]'
+proj config hooks.shutdown='[["./scripts/stop-services"]]'
+```
+
+A failing startup hook aborts activation and rolls it back. Hooks run as
+child processes, so they cannot change your shell; anything they start
+outside the shell (servers, mounts) needs a matching shutdown hook.
+
+### Renaming and deleting
+
+A name cannot be changed after creation; create a new environment and remove
+the old one. There is no delete command, because an environment is just a
+directory:
+
+```sh
+rm -r ~/.proj/envs/atlas            # private
+rm -r /opt/proj/envs/atlas          # shared (only its owner can)
+```
+
+## Toolchains and components (Lmod modules)
+
+### Adding modules to an environment
+
+Toolchains, compilers, and applications reach an environment as Lmod modules.
+Each module goes into one of four categories, which only organize the
+metadata; they are not an Lmod concept:
+
+| Category | Typical contents |
+|---|---|
+| `compiler` | `gcc/14`, `llvm/18`, `nvhpc/24.5` |
+| `toolchain` | `cmake/3.30`, `ninja/1.12`, `node/24.18.1`, `cuda/12.6` |
+| `application` | `vivado/2024.2`, `matlab/R2024b` |
+| `project` | modules shared by a group of related projects |
+
+```sh
+module avail                                   # what Lmod can load
+proj module add toolchain cmake/3.30           # active environment
+proj module add compiler gcc/14 --env atlas
+proj module list toolchain
+proj module remove toolchain cmake/3.30
+```
+
+Completion helps: `proj module add toolchain <Tab>` lists the modules Lmod
+can load right now, and `proj module remove toolchain <Tab>` lists those the
+environment uses. proj does not check that a module exists when you add it;
+a missing module makes `proj activate` fail and roll back.
+
+### Making software available as a module
+
+If a tool is not in `module avail`, install it anywhere and describe it with a
+small Lua modulefile. A common layout keeps software and modulefiles apart:
+
+```text
+/opt/software/node/24.18.1/        the installed software
+/opt/modulefiles/node/24.18.1.lua  its modulefile
+```
+
+```lua
+-- /opt/modulefiles/node/24.18.1.lua
+help("Node.js 24.18.1")
+whatis("Name: Node.js")
+whatis("Version: 24.18.1")
+family("node")                       -- at most one node version at a time
+
+local root = "/opt/software/node/24.18.1"
+prepend_path("PATH", pathJoin(root, "bin"))
+setenv("NODE_HOME", root)
+```
+
+Then add the directory to Lmod's search path: for everyone, through your
+distribution's Lmod configuration or a profile script; or for yourself, in
+your startup file before the proj block:
+
+```sh
+module use /opt/modulefiles             # shared modules
+module use ~/modulefiles                # personal modules
+```
+
+Check it with `module avail node`, then run `proj module add toolchain
+node/24.18.1`. Lmod's documentation covers modulefiles in depth, including
+`depends_on`, `prereq`, and hierarchical module trees.
+
+## Shared servers
+
+A shared installation lets a group of people on one machine use the same
+environments: an administrator installs proj once, every group member can
+activate every shared environment, and each environment can be changed only
+by its creator unless it is made group-writable.
+
+### Administrator setup
+
+1. Create the group and add its members (members must log in again for the
+   membership to apply):
+
+   ```sh
+   sudo groupadd proj
+   sudo usermod -aG proj alice
+   ```
+
+   Reusing an existing group, such as the one that already shares a conda
+   installation, works too: pass `--group <name>`.
+
+2. Install as root in shared mode:
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/manuelblancovalentin/proj/master/install.sh \
+     | sudo sh -s -- --mode shared --group proj --python-manager conda
+   ```
+
+   `sudo` hides your `PATH`, so name an existing conda or mamba with
+   `--python-manager`. The installer offers to create a missing group.
+
+3. Decide how shells load proj:
+   - **System-wide**: accept the installer's offer (or pass `--system-init`)
+     to add proj to `/etc/zsh/zshrc` (or `/etc/zshrc`) and `/etc/bash.bashrc`
+     (or `/etc/bashrc`) for every user.
+   - **Site profile**: pass `--no-system-init` and source
+     `/opt/proj/shell/init.bash` or `init.zsh` from your own site profile
+     scripts (see [Customizing `proj info` for a site](#customizing-proj-info-for-a-site)).
+   - **Per user**: pass `--no-system-init` and let each user run `proj init`.
+
+The result:
+
+| Path | Owner and mode | Meaning |
+|---|---|---|
+| `/opt/proj` | root, readable by all | The code; upgrades need `sudo` |
+| `/opt/proj/etc/config.toml` | root, `644` | Site configuration |
+| `/opt/proj/envs` | root:`proj`, `3770` | Shared registry: members create entries and nobody else can look inside; setgid keeps the group, sticky stops members from removing each other's environments |
+
+To make proj itself usable only by the group, also run
+`sudo chgrp proj /opt/proj && sudo chmod 750 /opt/proj`.
+
+### Per-user setup
+
+Each member, once:
+
+```sh
+/opt/proj/bin/proj init --shell zsh      # and/or --shell bash; skip if loaded system-wide
+proj doctor                              # expect "shared registry ... ok"
+```
+
+`proj doctor` reports a missing group membership and explains how to fix it.
+Each user keeps a private registry too; a private environment with the same
+name as a shared one takes precedence for that user.
+
+### Creating shared environments
+
+```sh
+cd /data/projects/atlas
+proj create atlas --shared                     # only you can change it
+proj create atlas --shared --group-writable    # any member can change it
+proj set-python-env --env atlas atlas          # recorded by prefix path
+proj module add toolchain cuda/12.6 --env atlas
+proj list                                      # SCOPE "shared", OWNER you
+```
+
+Everyone in the group can now run `proj activate atlas`. For that to work for
+them, the project root and the Python environment must be readable by the
+group. In a shared environment, `set-python-env` records the environment's
+full prefix (for example `/opt/miniforge3/envs/atlas`), so every member
+activates the same one regardless of their own conda settings.
+
+### Permissions and trust
+
+- Owner-only environments are created `2755` with a `644` document;
+  `--group-writable` ones `2775` and `664`. Edits keep those permissions.
+- `proj config` on an environment you cannot change fails with
+  `environment 'atlas' belongs to alice`.
+- **Activation is a trust boundary.** Hooks and aliases from someone else's
+  environment run as you. proj prints a notice when you activate an
+  environment you do not own, and a group-writable environment lets every
+  member change those hooks. World-writable metadata is always refused.
+- One broken document in the shared registry is reported by `proj list` and
+  `proj doctor` and skipped; it does not break proj for anyone else.
+- Generated modulefiles are cached per user, so activation only needs read
+  access to the shared metadata.
+
+## Configuration
+
+### Configuration files and keys
+
+Two files accept the same keys; the user file overrides the site file key by
+key:
+
+1. `PREFIX/etc/config.toml`: site configuration written by the installer.
+2. `~/.config/proj/config.toml`: optional per-user configuration.
 
 ```toml
 schema = 1
-registry = "~/.proj/envs"            # private registry; ~ is per user
-shared_registry = "/opt/proj/envs"   # shared mode only
+registry = "~/.proj/envs"            # private registry; ~ expands per user
+shared_registry = "/opt/proj/envs"   # shared registry (shared installs)
 group = "proj"                       # required with shared_registry
-python_manager = "micromamba"        # or "conda" / "mamba"
-project_roots = ["/shared/project-environments"]
+python_manager = "conda"             # default manager: micromamba, conda, mamba
+project_roots = ["/srv/team-envs"]   # extra metadata roots
 module_cache = "~/.cache/proj/modulefiles"
 
 [behavior]
-change_directory = true
-run_startup_hooks = true
+change_directory = true              # cd to the project root on activation
+run_startup_hooks = true             # run startup hooks on activation
 ```
 
-Discovery order is also precedence: private registry, shared registry, then
-`project_roots`.
+Unknown keys are rejected, so typos fail loudly. `proj doctor` shows the
+effective site configuration, registries, and Python manager.
 
-Environment overrides for testing and automation include `PROJ_HOME`,
-`PROJ_CONFIG`, `PROJ_SITE_CONFIG`, `PROJ_SHARED_REGISTRY`, `PROJ_GROUP`,
-`PROJ_PYTHON_MANAGER`,
-`PROJ_PROJECT_ROOTS` (colon-separated), `PROJ_CACHE_HOME`, and
-`PROJ_GLOBAL_BIN`, `PROJ_GLOBAL_MAN`, and `PROJ_GLOBAL_TLDR`.
+### Environment variables
 
-See [metadata](docs/metadata.md), [architecture](docs/architecture.md),
-[lifecycle](docs/lifecycle.md), and
-[troubleshooting](docs/troubleshooting.md).
+| Variable | Overrides |
+|---|---|
+| `PROJ_HOME` | Private registry home (`$PROJ_HOME/envs`) |
+| `PROJ_CONFIG`, `PROJ_SITE_CONFIG` | User and site configuration files |
+| `PROJ_SHARED_REGISTRY`, `PROJ_GROUP` | Shared registry and its group |
+| `PROJ_PYTHON_MANAGER` | Default Python manager |
+| `PROJ_PROJECT_ROOTS` | Extra metadata roots (colon-separated) |
+| `PROJ_CACHE_HOME` | Cache directory (`~/.cache/proj`) |
+| `PROJ_PYTHON` | Interpreter that runs proj |
+| `PROJ_GLOBAL_BIN`, `PROJ_GLOBAL_MAN`, `PROJ_GLOBAL_TLDR` | Link targets of `proj install` |
+
+While an environment is active, proj sets `PROJ_ACTIVE`, `PROJ_ROOT`,
+`PROJ_METADATA`, `PROJ_MODULE`, and `PROJ_MAMBA_ENV` (the Python
+environment).
+
+## Project metadata reference
+
+```toml
+schema = 1
+
+[project]
+name = "atlas"                         # required; fixed after creation
+root = "/projects/atlas"               # required
+description = "Atlas simulation"       # defaults to the name
+shell = "zsh"                          # zsh or bash; informational
+
+[python]
+manager = "conda"                      # micromamba, conda, or mamba
+environment = "atlas"                  # name, or absolute prefix path
+
+[modules]
+compiler = ["gcc/14"]
+toolchain = ["cmake/3.30", "ninja/1.12"]
+application = []
+project = []
+
+[environment]
+ATLAS_MODE = "development"
+ATLAS_DATA = "${project.root}/data"
+
+[paths]
+prepend = ["${project.root}/bin"]      # must stay inside the root
+
+[aliases]
+atlas-root = "cd ${project.root}"
+
+[hooks]
+startup = [["./scripts/check-licenses"]]
+shutdown = [["./scripts/stop-services"]]
+
+[commands.build]                       # validated; execution reserved
+description = "Build the project"
+command = ["./scripts/build"]
+```
+
+Keys accepted by `proj config`: `project.description`, `project.root`,
+`project.shell`, `python.manager`, `python.environment`, `paths.prepend`,
+`hooks.startup`, `hooks.shutdown`, `modules.<category>`,
+`environment.<VARIABLE>`, and `aliases.<name>`. Details:
+[docs/metadata.md](docs/metadata.md).
+
+## Command reference
+
+| Command | Purpose |
+|---|---|
+| `proj create <name> [--root DIR] [--shared [--group-writable]]` | Register a project |
+| `proj list` | List environments with scope and owner |
+| `proj activate <name>` / `proj deactivate` | Enter or leave an environment |
+| `proj current` | Print the active environment |
+| `proj status` | Show the active environment and any drift |
+| `proj info [--env NAME]` | Show every effective setting |
+| `proj config [--env NAME] <key>[=<value>]` | Read or write metadata |
+| `proj set-python-env [--env NAME] [--manager M] <environment>` | Link a Python environment |
+| `proj python-env list [--manager M]` | List Python environments |
+| `proj module {list\|add\|remove} <category> [module] [--env NAME]` | Manage Lmod modules |
+| `proj env list` / `proj env show <name>` | Inspect generated modules |
+| `proj doctor` | Check the installation and this shell |
+| `proj init [--shell zsh\|bash] [--rc FILE] [--reverse]` | Add or remove the startup-file block |
+| `proj install` | Link a checkout into the neighbouring `bin/` and `share/` |
+| `proj --version` | Print the version |
+
+`--project` is accepted as an older spelling of `--env`. The complete
+reference is `man proj`; `tldr proj` has short examples.
+
+## Advanced topics
+
+### How activation works
+
+`proj` has two parts. The command, `bin/proj`, is a Python program that
+validates metadata, renders modulefiles, and prints shell code. The shell
+adapter (`shell/init.zsh` or `shell/init.bash`, sharing `shell/core.sh`)
+defines a `proj` shell function, because only a function can change the shell
+you are typing in. For `activate`, the function asks the command for a line
+such as `_proj_activate atlas /projects/atlas project/atlas …` and evaluates
+it.
+
+The generated module for the metadata example above contains, in part:
+
+```lua
+family("project")
+depends_on("cmake/3.30")
+depends_on("ninja/1.12")
+depends_on("gcc/14")
+setenv("PROJ_ACTIVE", "atlas")
+setenv("ATLAS_MODE", "development")
+prepend_path("PATH", "/projects/atlas/bin")
+set_alias("atlas-root", "cd /projects/atlas")
+```
+
+A content digest avoids rewriting it when nothing changed. Nothing about
+activation is stored outside the shell itself. See
+[docs/architecture.md](docs/architecture.md) and
+[docs/lifecycle.md](docs/lifecycle.md).
+
+### State drift and `proj status`
+
+If you unload one of the environment's modules or switch Python environments
+by hand, `proj status` reports the drift and exits with status 2, and `proj
+deactivate` refuses to guess how to undo it. Restore the expected state (for
+example `conda activate atlas`) and deactivate again.
+
+### Additional metadata roots
+
+`project_roots` (or `PROJ_PROJECT_ROOTS`) adds directories that are searched
+one level deep for `*/project.toml`, for example environments kept in a
+repository of team configuration. Search order is also precedence: private
+registry, shared registry, then extra roots.
+
+### Shell integration, completion, and prompts
+
+The startup-file block that `proj init` writes only sources the adapter.
+Sourcing it never activates an environment, scans for projects, or starts a
+process, so it adds a couple of milliseconds to shell startup. The adapter:
+
+- puts proj's `bin/`, manual, and TLDR directories on `PATH`, `MANPATH`, and
+  `XDG_DATA_DIRS`, once;
+- registers completion for commands, options, environment names, Python
+  environments, and Lmod modules, computed only when you press Tab;
+- adds a `mamba` alias for `micromamba` at the first prompt, unless a real
+  `mamba` exists;
+- uses the dots shell framework's `ok`/`info`/`error` helpers and panel for
+  `proj info` when dots is loaded, with a plain fallback otherwise.
+
+To show the active environment in your prompt, read `$PROJ_ACTIVE`.
+
+### Customizing `proj info` for a site
+
+A site profile sourced after the adapter can draw `proj info` its own way by
+defining `_proj_render_info`, which receives the environment name followed by
+label/value pairs:
+
+```bash
+. /opt/proj/shell/init.bash
+
+_proj_render_info() {
+  local name=$1
+  shift
+  printf '== %s ==\n' "$name"
+  while (( $# >= 2 )); do printf '  %s: %s\n' "$1" "$2"; shift 2; done
+}
+```
+
+The same profile is the place for site-specific banners or links; keep them
+there rather than in proj.
+
+### Choosing the Python interpreter that runs proj
+
+proj runs with `/usr/bin/python3` so that an active environment's Python can
+never replace it. If the system Python cannot read TOML (before 3.11, without
+`tomli`), the installer records a suitable `python3` in `PREFIX/etc/python`.
+`PROJ_PYTHON` overrides both.
+
+## Troubleshooting
+
+Start with `proj doctor`; every failing check names the fix. Common cases:
+
+- **`activate must run through the shell integration`**: run `proj init` and
+  open a new shell.
+- **`module function: not initialized in this shell`**: Lmod's shell function
+  is missing, often after starting Zsh from a Bash login. Add the `source
+  …/lmod/init/zsh` line that doctor prints to your startup file.
+- **`<manager> shell integration is unavailable`**: initialize the Python
+  manager's shell hook (`conda init zsh`, `micromamba shell init`).
+- **`not a member of group 'proj'`**: ask for `usermod -aG proj <user>`, then
+  log in again.
+- **`proj` runs a different program**: some systems ship an unrelated
+  `/usr/bin/proj` (the PROJ cartography tool); initialize the shell so proj's
+  `bin/` comes first.
+
+More in [docs/troubleshooting.md](docs/troubleshooting.md).
+
+## Development
+
+```sh
+./tests/run          # unit tests plus Zsh, Bash, installer, and sharing checks
+./tests/benchmark    # shell initialization time
+```
+
+The tests use fake `module` and Python-manager functions, so they run on
+machines without Lmod or conda; `proj doctor` always reports the real host.
+Task definitions (`[commands.*]`) are validated and displayed, but `proj run`
+is not implemented yet. Contributor notes and invariants are in
+[AGENTS.md](AGENTS.md).
