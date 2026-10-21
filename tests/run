@@ -415,6 +415,14 @@ HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private 
 grep -q custom "$install_prefix/etc/config.toml" || fail "upgrade replaced configuration"
 [ "$(grep -c '>>> proj initialize >>>' "$install_home/.bashrc")" = 1 ] ||
   fail "upgrade duplicated shell initialization"
+[ ! -e "$install_home/.zshrc" ] || fail "installer initialized an unused shell"
+HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private \
+  --prefix "$install_prefix" --shell zsh,bash --no-install-deps >/dev/null 2>&1 ||
+  fail "multi-shell installation"
+grep -qF ". $install_prefix/shell/init.zsh" "$install_home/.zshrc" ||
+  fail "installer Zsh initialization"
+[ "$(grep -c '>>> proj initialize >>>' "$install_home/.bashrc")" = 1 ] ||
+  fail "multi-shell installation duplicated Bash initialization"
 HOME="$install_home" "$install_prefix/bin/proj" create sample \
   --root "$tmp/work/sample" >/dev/null || fail "installed creation"
 [ -f "$install_home/custom/sample/project.toml" ] || fail "site registry location"

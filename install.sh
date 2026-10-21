@@ -41,7 +41,9 @@ choice is asked interactively with a default shown in brackets.
   --group NAME            group for shared mode (default: proj)
   --registry DIR          private environment registry (default: ~/.proj/envs)
   --shared-registry DIR   shared environment registry (default: PREFIX/envs)
-  --shell zsh|bash        shell to initialize (default: from \$SHELL)
+  --shell LIST            shells to initialize: zsh, bash, or zsh,bash
+                          (default: ask for each installed shell, suggesting
+                          yes for the current and login shells)
   --init / --no-init      add proj to your shell startup file
   --system-init / --no-system-init
                           as root, add proj to the system-wide startup files
@@ -201,14 +203,41 @@ if ! /usr/bin/python3 -c 'import sys, tomllib; sys.exit(sys.version_info < (3, 1
   die "proj needs /usr/bin/python3 3.11 or newer (with tomllib)"
 fi
 
-[ -n "$shell_name" ] || shell_name=${SHELL##*/}
-case $shell_name in
-  zsh|bash) ;;
-  *)
-    warn "unsupported login shell '${shell_name:-unknown}'; proj supports zsh and bash"
-    shell_name=
-    ;;
-esac
+# Shells to initialize. Many people run a shell other than their login shell
+# (for example zsh started from bash on a cluster), so consider the shell that
+# launched this installer, the login shell, and every other supported shell
+# installed here. --shell zsh,bash restricts the choice.
+login_shell=${SHELL##*/}
+parent_shell=$(ps -o comm= -p "$PPID" 2>/dev/null || true)
+parent_shell=${parent_shell#-}
+parent_shell=${parent_shell##*/}
+shells=
+if [ -n "$shell_name" ]; then
+  candidates=$(printf '%s' "$shell_name" | tr ',' ' ')
+else
+  candidates="$parent_shell $login_shell zsh bash"
+fi
+for candidate in $candidates; do
+  case $candidate in
+    zsh|bash) ;;
+    *)
+      [ -n "$shell_name" ] && die "unsupported shell '$candidate'; use zsh and/or bash"
+      continue
+      ;;
+  esac
+  command -v "$candidate" >/dev/null 2>&1 || continue
+  case " $shells " in
+    *" $candidate "*) ;;
+    *) shells="$shells $candidate" ;;
+  esac
+done
+
+rc_for() {
+  case $1 in
+    zsh) printf '%s/.zshrc\n' "${ZDOTDIR:-$HOME}" ;;
+    bash) printf '%s/.bashrc\n' "$HOME" ;;
+  esac
+}
 
 if ! lmod_present; then
   warn "Lmod was not found; proj needs it to activate environments"
@@ -410,13 +439,21 @@ if is_root; then
   else
     note "Each user can enable proj with: $proj_bin init"
   fi
-elif [ -n "$shell_name" ]; then
-  if [ "$init" = yes ] ||
-     { [ -z "$init" ] && confirm "Initialize proj for $shell_name now" yes; }; then
-    "$proj_bin" init --shell "$shell_name"
-  else
-    note "Initialize later with: $proj_bin init"
-  fi
+elif [ -n "$shells" ] && [ "$init" != no ]; then
+  for candidate in $shells; do
+    rc=$(rc_for "$candidate")
+    # Default to yes for shells you evidently use.
+    default=no
+    if [ -n "$shell_name" ] || [ "$candidate" = "$parent_shell" ] ||
+       [ "$candidate" = "$login_shell" ] || [ -f "$rc" ]; then
+      default=yes
+    fi
+    if [ "$init" = yes ]; then
+      [ "$default" = yes ] && "$proj_bin" init --shell "$candidate"
+    elif confirm "Initialize proj for $candidate in $rc" "$default"; then
+      "$proj_bin" init --shell "$candidate"
+    fi
+  done
 else
   note "Initialize later with: $proj_bin init --shell zsh|bash"
 fi

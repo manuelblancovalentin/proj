@@ -36,6 +36,17 @@ def run_checks(config: Config) -> list[Check]:
     module_function = os.environ.get("PROJ_MODULE_FUNCTION") == "1"
     mamba = shutil.which("micromamba") or os.environ.get("MAMBA_EXE")
     shell_adapter = os.environ.get("PROJ_SHELL_INTEGRATION", "")
+    module_detail = "available"
+    if not module_function:
+        module_detail = "not initialized in this shell"
+        # Exported Lmod variables survive starting zsh from bash; the module
+        # function does not, so point at Lmod's own initialization script.
+        lmod_pkg = os.environ.get("LMOD_PKG") or (
+            str(lmod_path.parents[1]) if lmod_path else ""
+        )
+        init_script = Path(lmod_pkg) / "init" / (shell_adapter or "zsh")
+        if lmod_pkg and init_script.is_file():
+            module_detail += f"; add `source {init_script}` to your startup file"
 
     checks = [
         Check(
@@ -47,7 +58,7 @@ def run_checks(config: Config) -> list[Check]:
         Check(
             "module function",
             module_function,
-            "available" if module_function else "not initialized in this shell",
+            module_detail,
         ),
         Check("micromamba", bool(mamba), mamba or "not installed"),
         Check(

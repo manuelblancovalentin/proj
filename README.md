@@ -90,9 +90,12 @@ accepts the defaults and `--help` lists the flags for unattended installs:
   write `/opt` defaults to `~/.local/opt/proj`. Any directory works.
 - **Registries**: where private environments live (default `~/.proj/envs`)
   and, in shared mode, the group registry (default `PREFIX/envs`).
-- **Shell**: detected from `$SHELL`; with consent it runs `proj init`, which
-  adds a marked block to `~/.zshrc` or `~/.bashrc`. As root it can instead add
-  the block to the system-wide `zshrc`/`bash.bashrc` for every user.
+- **Shells**: Zsh and Bash are both supported. The installer asks about each
+  installed shell, suggesting yes for the one running the installer, your
+  login shell, and any shell that already has a startup file; `--shell
+  zsh,bash` picks explicitly. Each yes runs `proj init`, which adds a marked
+  block to `~/.zshrc` or `~/.bashrc`. As root it can instead add the block to
+  the system-wide `zshrc`/`bash.bashrc` for every user.
 - **Dependencies**: if Lmod is missing it offers the distribution package
   (`apt-get install lmod`, `dnf install Lmod`), which needs sudo. If
   micromamba is missing it offers micromamba's official per-user installer.

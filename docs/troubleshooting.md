@@ -8,8 +8,13 @@ Run:
 proj doctor
 ```
 
-Both Lmod itself and its `module` Zsh function are required. Installing a
-package without sourcing Lmod's Zsh initialization is insufficient.
+Both Lmod itself and its `module` shell function are required. Installing a
+package without sourcing Lmod's shell initialization is insufficient.
+
+Starting Zsh from a Bash login shell is a common case: Lmod's exported
+variables survive, but the `module` function does not. `proj doctor` then
+names the script to source, typically `source $LMOD_PKG/init/zsh` in
+`~/.zshrc` before the proj block.
 
 ## Activation says to source the integration
 
