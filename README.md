@@ -42,6 +42,7 @@ $ proj deactivate
   - [Python environments](#python-environments)
   - [Variables, paths, and aliases](#variables-paths-and-aliases)
   - [Hooks](#hooks)
+  - [The configuration menu](#the-configuration-menu)
   - [Removing and renaming](#removing-and-renaming)
 - [Toolchains and components (Lmod modules)](#toolchains-and-components-lmod-modules)
   - [Adding modules to an environment](#adding-modules-to-an-environment)
@@ -137,6 +138,9 @@ Environments live in **registries**:
   so a project's Python can never replace proj's own runtime.
 - Optional: micromamba, conda, or mamba, with its shell integration
   initialized, for projects that use a Python environment.
+- Optional: network access once, to install the interactive configuration
+  menu (Textual, in a private virtual environment; on Debian and Ubuntu this
+  needs the `python3-venv` package).
 
 ### Running the installer
 
@@ -168,6 +172,8 @@ abort (nothing is left behind). It asks for:
 5. **Shells**: for each installed shell, whether to add proj to its startup
    file. Yes is suggested for the shell you are running, your login shell,
    and any shell that already has a startup file.
+6. **Configuration menu**: whether to install the optional interactive
+   [`proj configmenu`](#the-configuration-menu), which downloads Textual.
 
 It also checks the requirements and offers to install what is missing: Lmod
 through your distribution (`apt-get install lmod`, `dnf install Lmod`; this
@@ -198,6 +204,7 @@ installs:
 | `--init` / `--no-init` | Add or skip the per-user startup-file block |
 | `--system-init` / `--no-system-init` | As root, add or skip the block in the system-wide `zshrc`/`bash.bashrc` |
 | `--install-deps` / `--no-install-deps` | Install or skip missing Lmod and micromamba |
+| `--with-menu` / `--without-menu` | Install or skip the interactive `proj configmenu` (needs network) |
 | `--source DIR`, `--ref REF` | Install from a local tree, or download another branch or tag |
 | `-y`, `--yes` | Never prompt |
 
@@ -355,6 +362,55 @@ proj config hooks.shutdown='[["./scripts/stop-services"]]'
 A failing startup hook aborts activation and rolls it back. Hooks run as
 child processes, so they cannot change your shell; anything they start
 outside the shell (servers, mounts) needs a matching shutdown hook.
+
+### The configuration menu
+
+`proj configmenu` edits an environment in a full-screen menu instead of one
+`proj config` command at a time. Run it inside an active environment, or pass
+`--env <name>`:
+
+```text
+┌ Configure ─────────────────────────────┐┌ project.toml • unsaved changes ──┐
+│ Name         atlas                     ││  4 [project]                     │
+│ Scope        private                   ││  5 name = "atlas"                │
+│ Owner        alice                     ││  6 root = "/projects/atlas"      │
+│ Metadata     ~/.proj/envs/atlas/…      ││❯ 7 description = "Atlas sim"     │
+│ ────────────────────────────────────── ││  …                               │
+│ Description          Atlas sim         ││❯18 toolchain = ["cmake/3.30"]    │
+│ Python environment   not set (recom…)  ││                                  │
+│ Toolchain modules    cmake/3.30        ││                                  │
+│ …                                      ││                          ✔ valid │
+└────────────────────────────────────────┘└──────────────────────────────────┘
+```
+
+- **Left panel**: the fixed facts about the environment (name, scope, owner,
+  metadata file), then everything you can set: description, project root,
+  Python manager, Python environment, startup and shutdown hooks, and modules
+  for each category. Unset settings worth filling in are marked
+  *recommended*. Click an entry or press Enter to open its dialog.
+- **Right panel**: `project.toml` exactly as it will be saved, with changed
+  lines marked `❯` and a live validity check.
+- **Dialogs** show live choices: Python managers found on `PATH`, the
+  manager's environments, and every module Lmod can load. These lists are
+  scanned when a dialog first opens and cached; **Rescan** refreshes them. The
+  module dialog filters as you type; Enter selects the only match, or adds a
+  module Lmod does not list, and Space toggles entries.
+- **Saving**: `Ctrl+S` or the *Save changes* entry, through the same
+  validated, atomic write as `proj config`. Changes to an active environment
+  apply after reactivation.
+- **Escape** always closes a dialog without changing anything. On the main
+  screen it quits, but with unsaved changes it asks first, and both Escape
+  and Enter in that question mean *no, stay*.
+
+The menu is built with [Textual](https://textual.textualize.io) and is the
+only part of proj with a third-party dependency. It runs from a private
+virtual environment inside the installation, `PREFIX/libexec/menu`, so no
+project environment can affect it and the rest of proj never loads it. The
+installer offers to set it up (it needs network access); otherwise:
+
+```sh
+proj configmenu --setup              # or: sudo /opt/proj/bin/proj configmenu --setup
+```
 
 ### Removing and renaming
 
@@ -642,6 +698,7 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj status` | Show the active environment and any drift |
 | `proj info [--env NAME]` | Show every effective setting |
 | `proj config [--env NAME] <key>[=<value>]` | Read or write metadata |
+| `proj configmenu [--env NAME] [--setup]` | Edit an environment in an interactive menu |
 | `proj set-python-env [--env NAME] [--manager M] <environment>` | Link a Python environment |
 | `proj python-env list [--manager M]` | List Python environments |
 | `proj module {list\|add\|remove} <category> [module] [--env NAME]` | Manage Lmod modules |

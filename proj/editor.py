@@ -10,7 +10,9 @@ except ModuleNotFoundError:
 from pathlib import Path
 from typing import Any
 
+from .access import require_writable
 from .errors import MetadataError, ProjError
+from .metadata import load_project
 
 MODULE_CATEGORIES = ("project", "toolchain", "application", "compiler")
 EXACT_CONFIG_KEYS = {
@@ -216,3 +218,19 @@ def parse_value(raw: str) -> Any:
         return tomllib.loads(f"value = {raw}")["value"]
     except tomllib.TOMLDecodeError:
         return raw
+
+
+def update_document(project, mutate) -> None:
+    """Apply mutate to a project's document atomically, restoring it if the
+    result does not validate."""
+    require_writable(project)
+    path = project.metadata_path
+    original = path.read_text()
+    data = load_document(path)
+    mutate(data)
+    try:
+        write_document(path, data)
+        load_project(path)
+    except Exception:
+        path.write_text(original)
+        raise

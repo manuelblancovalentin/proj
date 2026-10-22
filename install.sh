@@ -25,6 +25,7 @@ shell_name=
 system_init=
 install_deps=
 python_manager=
+with_menu=
 batch=0
 tmp=
 stage=
@@ -45,6 +46,10 @@ choice is asked interactively with a default shown in brackets.
   --group NAME            group for shared mode (default: proj)
   --registry DIR          private environment registry (default: ~/.proj/envs)
   --shared-registry DIR   shared environment registry (default: PREFIX/envs)
+  --with-menu / --without-menu
+                          install the interactive \`proj configmenu\` (downloads
+                          Textual into PREFIX/libexec/menu; default: ask, or
+                          no with --yes)
   --python-manager NAME   default Python environment manager: micromamba,
                           conda, or mamba (default: the first one found);
                           on an existing installation, updates the setting
@@ -194,6 +199,8 @@ while [ $# -gt 0 ]; do
     --no-system-init) system_init=no ;;
     --install-deps) install_deps=yes ;;
     --python-manager) python_manager=${2?--python-manager needs a name}; shift ;;
+    --with-menu) with_menu=yes ;;
+    --without-menu) with_menu=no ;;
     --no-install-deps) install_deps=no ;;
     -y|--yes) batch=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -520,9 +527,25 @@ else
   say "Installed proj in $prefix"
 fi
 
-# --- Shell initialization -----------------------------------------------------
-
 proj_bin=$prefix/bin/proj
+
+# --- Configuration menu ---------------------------------------------------------
+
+# The menu needs Textual, installed from the network into its own virtual
+# environment. An upgrade refreshes an existing menu without asking.
+menu_default=no
+interactive && menu_default=yes
+if [ "$with_menu" != no ] &&
+   { [ "$with_menu" = yes ] || [ -d "$prefix/libexec/menu" ] ||
+     confirm "Install the interactive configuration menu (proj configmenu; downloads Textual)" \
+       "$menu_default"; }; then
+  "$proj_bin" configmenu --setup ||
+    warn "the configuration menu was not installed; retry with: $proj_bin configmenu --setup"
+else
+  note "Add the configuration menu later with: $proj_bin configmenu --setup"
+fi
+
+# --- Shell initialization -----------------------------------------------------
 
 if is_root; then
   system_files=

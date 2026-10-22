@@ -39,7 +39,14 @@ activation.
 - `proj init` owns the marked `# >>> proj initialize >>>` block in startup
   files; it is idempotent and `--reverse` removes it.
 - Use `/usr/bin/python3` and the standard library only (falling back to
-  `tomli` before 3.11; minimum 3.9). This prevents an active project
+  `tomli` before 3.11; minimum 3.9). The sole exception is the optional
+  `proj configmenu` interface (`proj/menu.py`, Textual), which runs only from
+  its private virtual environment, `<root>/libexec/menu`, created by
+  `proj configmenu --setup`; nothing else may import it. Its editing logic
+  lives in the standard-library `proj/menu_state.py`.
+- `proj configmenu` dialogs close on Escape without changes; the main screen
+  never quits with unsaved changes without asking, and the question defaults
+  to staying. This prevents an active project
   environment from changing proj's runtime. Only `PREFIX/etc/python`
   (recorded by the installer when the system Python cannot read TOML) or
   `PROJ_PYTHON` may select another interpreter. The launcher replaces the

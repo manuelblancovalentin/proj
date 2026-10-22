@@ -1,4 +1,4 @@
-.TH PROJ 1 "October 2026" "proj 0.3.0" "User Commands"
+.TH PROJ 1 "October 2026" "proj 0.4.0" "User Commands"
 .SH NAME
 proj \- manage project development environments with Lmod
 .SH SYNOPSIS
@@ -97,6 +97,19 @@ then to the configured
 the same Python environment.
 .B proj
 does not create the Python environment.
+.TP
+.BR "proj configmenu " "[--env " name "] [--setup]"
+Edit an environment in a full-screen menu: fixed facts and editable settings
+on the left, the resulting
+.I project.toml
+with unsaved lines marked on the right. Dialogs list live choices (Python
+managers, environments, Lmod modules) with a Rescan button. Ctrl+S saves;
+Escape closes a dialog unchanged, and on the main screen asks before
+discarding unsaved changes, defaulting to staying.
+.B --setup
+installs the menu's private runtime (Textual) under
+.IR PREFIX /libexec/menu ;
+it needs network access.
 .TP
 .BR "proj python-env list " "[--manager " manager ]
 List environments reported by the default or named manager.

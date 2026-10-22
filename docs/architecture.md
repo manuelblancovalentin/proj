@@ -66,6 +66,16 @@ Validated metadata is rendered atomically to:
 A content digest prevents unnecessary rewrites. Every generated project module
 uses `family("project")` and every dependency uses `depends_on()`.
 
+## Configuration menu
+
+`proj configmenu` is the only component with a third-party dependency
+(Textual). Its editing model, `proj/menu_state.py`, is standard-library code
+that reuses the validated, atomic `update_document` path; the Textual
+interface, `proj/menu.py`, is started by `proj/menu_runtime.py` with the
+interpreter of a private virtual environment, `<root>/libexec/menu`, created
+by `proj configmenu --setup` from a pinned requirement. The core never imports
+it, so proj keeps working where the menu is not installed.
+
 ## Installation layout
 
 Nothing is tied to a fixed path. The tool root is the directory holding `bin/`,
@@ -77,6 +87,7 @@ PREFIX/                    default /opt/proj, chosen in install.sh
   proj/ shell/ share/      code, adapters, manual and TLDR page
   etc/config.toml          site configuration (kept across upgrades)
   envs/                    default shared registry (shared mode)
+  libexec/menu/            optional configmenu runtime (kept across upgrades)
   .proj-install            installed version marker
 ```
 

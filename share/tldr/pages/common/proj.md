@@ -28,6 +28,10 @@
 
 `proj info {{[--env environment_name]}}`
 
+- Edit the active project in an interactive menu:
+
+`proj configmenu`
+
 - Set or read a configuration value for the active project:
 
 `proj config {{project.description}}={{"Description"}}`

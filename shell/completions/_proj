@@ -46,6 +46,7 @@ commands=(
   'status:Show active project state'
   'info:Show project environment metadata'
   'config:Read or write project metadata'
+  'configmenu:Edit an environment in an interactive menu'
   'set-python-env:Link a conda-family Python environment'
   'python-env:Inspect Python environments'
   'module:Manage Lmod dependencies'
@@ -126,6 +127,9 @@ case $words[2] in
     if (( CURRENT == 3 )); then
       _values 'option' --env
     fi
+    ;;
+  configmenu)
+    _values 'option' --env --setup
     ;;
   set-python-env)
     if (( CURRENT == 3 )); then

@@ -633,4 +633,24 @@ PROJ_HOME="$tmp/remove-home" PROJ_CACHE_HOME="$tmp/remove-cache" \
   ' bash "$root" || fail "deactivating an environment removed while active"
 pass "an environment removed while active still deactivates cleanly"
 
+if PROJ_HOME="$managed_home" "$root/bin/proj" configmenu --env atlas </dev/null \
+  >/dev/null 2>"$tmp/menu-error"; then
+  fail "configmenu ran without a terminal"
+fi
+grep -q 'interactive terminal\|not installed' "$tmp/menu-error" ||
+  fail "configmenu explains why it cannot start: $(cat "$tmp/menu-error")"
+if env -u PROJ_ACTIVE PROJ_HOME="$managed_home" "$root/bin/proj" configmenu \
+  </dev/null >/dev/null 2>&1; then
+  fail "configmenu started without an environment"
+fi
+menu_python="$root/libexec/menu/bin/python"
+if [ -x "$menu_python" ]; then
+  (cd "$root" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root" \
+    "$menu_python" -m unittest tests.test_menu >"$tmp/menu-tests" 2>&1) ||
+    fail "configmenu tests: $(tail -20 "$tmp/menu-tests")"
+  pass "configmenu edits, previews, saves, and guards unsaved changes"
+else
+  printf 'skip - configmenu interface tests (run `proj configmenu --setup`)\n'
+fi
+
 printf 'all tests passed\n'

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, python_envs
+from . import access, menu_runtime, python_envs
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -23,7 +23,7 @@ from .editor import (
     load_document,
     parse_value,
     set_dotted,
-    write_document,
+    update_document,
 )
 from .errors import ProjError
 from .metadata import (
@@ -185,20 +185,6 @@ def cmd_info_code(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
-def _update_document(project: Project, mutate) -> None:
-    access.require_writable(project)
-    path = project.metadata_path
-    original = path.read_text()
-    data = load_document(path)
-    mutate(data)
-    try:
-        write_document(path, data)
-        load_project(path)
-    except Exception:
-        path.write_text(original)
-        raise
-
-
 def cmd_config(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
     assignment = args.assignment
@@ -215,7 +201,7 @@ def cmd_config(config: Config, args: argparse.Namespace) -> int:
             print(value)
         return 0
     value = parse_value(raw_value)
-    _update_document(project, lambda data: set_dotted(data, assignment, value))
+    update_document(project, lambda data: set_dotted(data, assignment, value))
     print(f"Updated {assignment} in {project.metadata_path}")
     if os.environ.get("PROJ_ACTIVE") == project.name:
         print("Reactivate the project to apply environment changes.")
@@ -258,7 +244,7 @@ def cmd_set_python_env(config: Config, args: argparse.Namespace) -> int:
         set_dotted(data, "python.manager", manager)
         set_dotted(data, "python.environment", environment)
 
-    _update_document(project, mutate)
+    update_document(project, mutate)
     print(f"Linked {manager} environment {environment!r} to {project.name}.")
     print(f"Metadata updated at {project.metadata_path}")
     return 0
@@ -285,7 +271,7 @@ def cmd_module(config: Config, args: argparse.Namespace) -> int:
                 f"module {args.module!r} is not configured in {args.category}"
             )
         values.remove(args.module)
-    _update_document(
+    update_document(
         project,
         lambda document: set_dotted(
             document, f"modules.{args.category}", values
@@ -529,6 +515,15 @@ def cmd_remove(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_configmenu(config: Config, args: argparse.Namespace) -> int:
+    if args.setup:
+        menu_runtime.setup()
+        return 0
+    project = _selected_project(config, args.project)
+    menu_runtime.launch(project.name)
+    return 0
+
+
 def cmd_hook(config: Config, args: argparse.Namespace) -> int:
     try:
         project = resolve(config, args.project)
@@ -704,6 +699,13 @@ def build_parser() -> argparse.ArgumentParser:
     activate = sub.add_parser("activate", help="activate a project")
     activate.add_argument("project")
     sub.add_parser("deactivate", help="deactivate the current project")
+    configmenu = sub.add_parser(
+        "configmenu", help="edit an environment in an interactive menu"
+    )
+    configmenu.add_argument("--env", "--project", dest="project", metavar="NAME")
+    configmenu.add_argument(
+        "--setup", action="store_true", help="install the menu's private runtime"
+    )
     remove = sub.add_parser("remove", help="delete a project environment")
     remove.add_argument("project", metavar="name")
     remove.add_argument(
@@ -777,6 +779,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_env_list(config, args)
         if args.command == "env" and args.env_command == "show":
             return cmd_env_show(config, args)
+        if args.command == "configmenu":
+            return cmd_configmenu(config, args)
         if args.command == "remove":
             return cmd_remove(config, args)
         if args.command == "_hook":
