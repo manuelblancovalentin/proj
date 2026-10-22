@@ -32,6 +32,10 @@
 
 `proj info`
 
+- Check for a new proj version, then upgrade the installation in place:
+
+`proj upgrade {{[--check]}}`
+
 - Display the active or a named environment's effective metadata:
 
 `proj info {{[--env environment_name]}}`

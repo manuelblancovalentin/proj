@@ -65,6 +65,13 @@ activation.
   (recorded by the installer when the system Python cannot read TOML) or
   `PROJ_PYTHON` may select another interpreter. The launcher replaces the
   working directory on `sys.path` with the tool root.
+- `proj upgrade` reinstalls through the downloaded archive's own `install.sh`
+  (same prefix, recorded mode and group, `--no-init`, `--no-system-init`,
+  `--no-install-deps`), keeps `PREFIX/.previous`, never touches
+  configuration or startup files, refuses git checkouts, and runs before
+  configuration loads so a broken configuration cannot block it. The source
+  repository and ref live in `PREFIX/etc/source.toml`; `PROJ_UPGRADE_BASE`
+  replaces the host for tests.
 - Never emulate or fall back from Lmod.
 - Project configuration is metadata-driven; never hardcode a project name.
 - Managed metadata lives at `<registry>/<name>/project.toml` (private default

@@ -216,9 +216,32 @@ curl -fsSL https://raw.githubusercontent.com/manuelblancovalentin/proj/master/in
 
 ### Upgrading and uninstalling
 
-Run the installer again with the same prefix. It replaces the code, keeps
-`PREFIX/etc/config.toml`, and never duplicates the startup-file block. Passing
-`--python-manager` during an upgrade changes only that setting.
+An installed proj upgrades itself:
+
+```sh
+proj upgrade                    # check, show what will change, ask, then reinstall
+proj upgrade --check            # only report; exits 1 when an update is available
+proj upgrade --yes              # no question (required when there is no terminal)
+sudo /opt/proj/bin/proj upgrade # when the installation belongs to root (sudo needs the full path)
+```
+
+It downloads the archive of the repository and ref this installation recorded
+(`PREFIX/etc/source.toml`, written by the installer; `--ref` picks another
+branch or tag for one run, and `PROJ_REPO`/`PROJ_REF` override both), compares
+versions, and runs that archive's own `install.sh` against the same prefix with
+the choices the installation was made with, so a shared install stays shared.
+It keeps `PREFIX/etc/config.toml`, never touches shell startup files, installs
+no dependencies, and refreshes the configuration menu only if it is already
+installed. Nothing happens when the version is already current (`--force`
+reinstalls it, or downgrades). The previous version stays in `PREFIX/.previous`;
+to roll back, copy its contents over the prefix. Open a new shell afterwards to
+load the updated shell integration and completion.
+
+It does not work on a git checkout used in place (use `git pull`), and the
+first upgrade to a release that has this command still needs the installer
+(`curl … | sh`). Running the installer again with the same prefix does the
+same job and remains available; passing `--python-manager` during an
+upgrade changes only that setting.
 
 To uninstall, remove the startup-file blocks, then the prefix:
 
@@ -744,6 +767,7 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj env list` / `proj env show <name>` | Inspect generated modules |
 | `proj doctor` | Check the installation and this shell |
 | `proj init [--shell zsh\|bash] [--rc FILE] [--reverse]` | Add or remove the startup-file block |
+| `proj upgrade [--check] [--yes] [--force] [--ref REF]` | Reinstall proj from its source repository |
 | `proj install` | Link a checkout into the neighbouring `bin/` and `share/` |
 | `proj --version` | Print the version |
 

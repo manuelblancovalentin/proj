@@ -66,7 +66,8 @@ choice is asked interactively with a default shown in brackets.
   -y, --yes               accept defaults; never prompt
   -h, --help              show this help
 
-Environment: PROJ_REPO (default $PROJ_REPO), PROJ_REF.
+Environment: PROJ_REPO (default $PROJ_REPO), PROJ_REF. The choice is recorded in
+PREFIX/etc/source.toml, where "proj upgrade" reads it.
 EOF
 }
 
@@ -499,6 +500,16 @@ elif [ -n "$python_manager" ]; then
   chmod 644 "$config_file.new"
   mv "$config_file.new" "$config_file"
   note "set python_manager = \"$python_manager\" in $config_file"
+fi
+# Remember where this installation came from, for `proj upgrade`.
+if [ ! -f "$prefix/etc/source.toml" ]; then
+  mkdir -p "$prefix/etc"
+  {
+    say '# Where `proj upgrade` downloads updates from.'
+    say "repo = $(toml_string "$PROJ_REPO")"
+    say "ref = $(toml_string "$PROJ_REF")"
+  } >"$prefix/etc/source.toml"
+  chmod 644 "$prefix/etc/source.toml"
 fi
 if [ "$python" = /usr/bin/python3 ]; then
   rm -f "$prefix/etc/python"

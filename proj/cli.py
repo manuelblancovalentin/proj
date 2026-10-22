@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, lmod, menu_runtime, python_envs
+from . import access, lmod, menu_runtime, python_envs, upgrade
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -885,6 +885,19 @@ def build_parser() -> argparse.ArgumentParser:
     configmenu.add_argument(
         "--setup", action="store_true", help="install the menu's private runtime"
     )
+    upgrade_parser = sub.add_parser(
+        "upgrade", help="reinstall proj from its source repository"
+    )
+    upgrade_parser.add_argument(
+        "--ref", help="branch or tag to install (default: the one this installation recorded)"
+    )
+    upgrade_parser.add_argument(
+        "--check", action="store_true", help="only report whether an update is available"
+    )
+    upgrade_parser.add_argument("-y", "--yes", action="store_true", help="do not ask first")
+    upgrade_parser.add_argument(
+        "--force", action="store_true", help="reinstall the same version, or downgrade"
+    )
     remove = sub.add_parser("remove", help="delete a project environment")
     remove.add_argument("project", metavar="name")
     remove.add_argument(
@@ -923,6 +936,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "upgrade":
+            # Needs no configuration, so it still works when the configuration is broken.
+            return upgrade.run(
+                ref=args.ref, check=args.check, yes=args.yes, force=args.force
+            )
         config = load_config()
         if args.command == "list":
             return cmd_list(config, args)

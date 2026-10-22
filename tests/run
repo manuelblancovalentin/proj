@@ -23,6 +23,12 @@ bash -n "$root/shell/core.sh" || fail "shared core syntax under Bash"
 bash -n "$root/shell/init.bash" || fail "Bash adapter syntax"
 bash -n "$root/shell/completions/proj.bash" || fail "Bash completion syntax"
 sh -n "$root/install.sh" || fail "installer syntax"
+# The help text is an unquoted heredoc: a stray backtick would run a command.
+installer_help=$(sh "$root/install.sh" --help 2>&1)
+printf '%s\n' "$installer_help" | grep -q 'where "proj upgrade" reads it' ||
+  fail "installer help text was altered by command substitution"
+printf '%s\n' "$installer_help" | grep -q 'interactive `proj configmenu`' ||
+  fail "installer help lost its literal backticks"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root" /usr/bin/python3 -c '
 import ast, pathlib, sys
 for path in pathlib.Path(sys.argv[1]).glob("*.py"):
@@ -706,6 +712,90 @@ if [ -z "$(PATH=/usr/bin:/bin command -v lmod)" ]; then
     fail "proj info without Lmod"
 fi
 pass "proj avail groups modules by category and proj info shows an overview without an environment"
+
+# proj upgrade against a fake GitHub: file:// archives of this tree at other versions.
+upgrade_remote="$tmp/remote"
+make_remote() { # make_remote <ref> <version>
+  stage="$tmp/remote-stage-$1"
+  mkdir -p "$stage/proj-$1" "$upgrade_remote/owner/name/archive"
+  for item in bin proj shell share templates docs README.md install.sh; do
+    cp -R "$root/$item" "$stage/proj-$1/$item"
+  done
+  find "$stage" -name __pycache__ -prune -exec rm -rf {} +
+  sed -i "s/^__version__ = .*/__version__ = \"$2\"/" "$stage/proj-$1/proj/__init__.py"
+  tar -czf "$upgrade_remote/owner/name/archive/$1.tar.gz" -C "$stage" "proj-$1"
+}
+make_remote master 99.0.0
+make_remote old 0.0.1
+up_home="$tmp/up-home"
+up_prefix="$tmp/opt-up/proj"
+mkdir -p "$up_home"
+remote_env() { PROJ_UPGRADE_BASE="file://$upgrade_remote" HOME="$up_home" "$@"; }
+PROJ_REPO=owner/name PROJ_REF=master HOME="$up_home" SHELL=/bin/bash \
+  sh "$root/install.sh" --yes --mode private --prefix "$up_prefix" --no-init \
+  --no-install-deps >/dev/null 2>&1 || fail "baseline installation for upgrade tests"
+grep -q '^repo = "owner/name"$' "$up_prefix/etc/source.toml" || fail "installer records the source"
+printf '# kept across upgrades\n' >>"$up_prefix/etc/config.toml"
+mkdir -p "$up_prefix/libexec" && printf 'x\n' >"$up_prefix/libexec/sentinel"
+
+if upgrade_check=$(remote_env "$up_prefix/bin/proj" upgrade --check 2>&1); then
+  fail "upgrade --check must exit 1 when an update is available"
+fi
+printf '%s\n' "$upgrade_check" | grep -q '99.0.0 is available' || fail "upgrade --check message"
+if remote_env "$up_prefix/bin/proj" upgrade </dev/null >/dev/null 2>"$tmp/up-error"; then
+  fail "upgrade proceeded without confirmation"
+fi
+grep -q 'without confirmation' "$tmp/up-error" || fail "upgrade confirmation message"
+[ "$("$up_prefix/bin/proj" --version)" = "proj $version" ] || fail "refused upgrade changed the version"
+if [ "$(id -u)" != 0 ]; then
+  chmod a-w "$up_prefix"
+  if remote_env "$up_prefix/bin/proj" upgrade --yes >/dev/null 2>"$tmp/up-error"; then
+    chmod u+w "$up_prefix"
+    fail "upgrade wrote to a read-only installation"
+  fi
+  chmod u+w "$up_prefix"
+  grep -q 'cannot write' "$tmp/up-error" || fail "upgrade permission message"
+fi
+if "$root/bin/proj" upgrade --yes >/dev/null 2>"$tmp/up-error"; then
+  fail "upgrade accepted a git checkout"
+fi
+grep -q 'git checkout\|not installed by install.sh' "$tmp/up-error" || fail "checkout upgrade message"
+
+remote_env "$up_prefix/bin/proj" upgrade --yes >"$tmp/up-output" 2>&1 || fail "upgrade: $(tail -5 "$tmp/up-output")"
+[ "$("$up_prefix/bin/proj" --version)" = "proj 99.0.0" ] || fail "upgraded version"
+grep -q 'kept across upgrades' "$up_prefix/etc/config.toml" || fail "upgrade replaced the configuration"
+[ -f "$up_prefix/libexec/sentinel" ] || fail "upgrade removed libexec"
+[ ! -e "$up_home/.bashrc" ] && [ ! -e "$up_home/.zshrc" ] || fail "upgrade touched shell startup files"
+grep -q "__version__ = \"$version\"" "$up_prefix/.previous/proj/__init__.py" ||
+  fail "upgrade did not keep the previous version"
+[ "$(cat "$up_prefix/.previous/.proj-install")" = "$version" ] || fail "previous version marker"
+remote_env "$up_prefix/bin/proj" upgrade --check >/dev/null || fail "upgrade --check after upgrading"
+remote_env "$up_prefix/bin/proj" upgrade --yes 2>&1 | grep -q 'already up to date' ||
+  fail "upgrade to the same version"
+remote_env "$up_prefix/bin/proj" upgrade --yes --force 2>&1 | grep -q 'Upgrade proj 99.0.0 -> 99.0.0' ||
+  fail "forced reinstall"
+if remote_env "$up_prefix/bin/proj" upgrade --ref old --yes >/dev/null 2>"$tmp/up-error"; then
+  fail "upgrade silently downgraded"
+fi
+grep -q 'is newer than' "$tmp/up-error" || fail "downgrade message"
+remote_env "$up_prefix/bin/proj" upgrade --ref old --yes --force >/dev/null 2>&1 || fail "forced downgrade"
+[ "$("$up_prefix/bin/proj" --version)" = "proj 0.0.1" ] || fail "downgraded version"
+if remote_env "$up_prefix/bin/proj" upgrade --ref nosuchref --yes >/dev/null 2>"$tmp/up-error"; then
+  fail "upgrade accepted a missing ref"
+fi
+grep -q 'cannot download' "$tmp/up-error" || fail "missing ref message"
+
+# A shared installation stays shared across an upgrade.
+upgrade_group=$(id -gn)
+upgrade_shared="$tmp/opt-up-shared/proj"
+PROJ_REPO=owner/name HOME="$up_home" sh "$root/install.sh" --yes --mode shared \
+  --group "$upgrade_group" --prefix "$upgrade_shared" --shared-registry "$tmp/up-shared-envs" \
+  --no-init --no-install-deps >/dev/null 2>&1 || fail "shared baseline for upgrade"
+remote_env "$upgrade_shared/bin/proj" upgrade --yes >/dev/null 2>&1 || fail "shared upgrade"
+[ "$("$upgrade_shared/bin/proj" --version)" = "proj 99.0.0" ] || fail "shared upgraded version"
+grep -q "^group = \"$upgrade_group\"$" "$upgrade_shared/etc/config.toml" || fail "shared config kept"
+[ "$(stat -c %a "$tmp/up-shared-envs")" = 3770 ] || fail "shared registry kept"
+pass "proj upgrade checks, confirms, keeps configuration, backs up, and refuses unsafe changes"
 
 if PROJ_HOME="$managed_home" "$root/bin/proj" configmenu --env atlas </dev/null \
   >/dev/null 2>"$tmp/menu-error"; then

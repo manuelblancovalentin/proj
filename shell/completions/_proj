@@ -42,6 +42,7 @@ commands=(
   'activate:Activate a project environment'
   'deactivate:Deactivate the current project'
   'remove:Delete a project environment'
+  'upgrade:Reinstall proj from its source repository'
   'current:Print the active project name'
   'status:Show active project state'
   'avail:List the modules Lmod can load, by category'
@@ -94,6 +95,9 @@ fi
 case $words[2] in
   activate)
     (( CURRENT == 3 )) && _proj_project_names
+    ;;
+  upgrade)
+    _values 'option' --check --yes --force --ref
     ;;
   remove)
     if (( CURRENT == 3 )); then

@@ -1,4 +1,4 @@
-.TH PROJ 1 "October 2026" "proj 0.5.1" "User Commands"
+.TH PROJ 1 "October 2026" "proj 0.6.0" "User Commands"
 .SH NAME
 proj \- manage project development environments with Lmod
 .SH SYNOPSIS
@@ -172,6 +172,27 @@ for
 Existing conflicting paths are never overwritten. Use
 .I install.sh
 for a standalone installation.
+.TP
+.BR "proj upgrade " "[--check] [--yes] [--force] [--ref " ref ]
+Reinstall proj from its source repository. Downloads the archive of the
+repository and ref recorded in
+.IR PREFIX /etc/source.toml
+(overridden by
+.BR --ref ", " PROJ_REPO ", and " PROJ_REF ),
+compares versions, and, after asking (or with
+.BR --yes ),
+runs that archive's
+.I install.sh
+against this installation with its original mode and group. The site
+configuration and shell startup files are left alone, no dependencies are
+installed, and the previous version is kept in
+.IR PREFIX /.previous .
+.B --check
+only reports, exiting 1 when an update is available.
+.B --force
+reinstalls the same version or downgrades. A git checkout cannot be upgraded
+this way; use git. When the installation is not writable, run it with the full
+path under sudo.
 .TP
 .B proj --version
 Print the installed proj version.
