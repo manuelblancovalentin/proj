@@ -713,6 +713,66 @@ if [ -z "$(PATH=/usr/bin:/bin command -v lmod)" ]; then
 fi
 pass "proj avail groups modules by category and proj info shows an overview without an environment"
 
+# The [proj:<name>] prompt segment, in both adapters.
+cat >"$tmp/prompt-test.bash" <<'EOF'
+. "$1/shell/init.bash"
+plain() { printf '%s' "$1" | sed -e 's/[\x01\x02]//g' -e 's/\x1b\[[0-9;]*m//g'; }
+unset NO_COLOR PROJ_PROMPT
+PS1='PROMPT> '
+unset PROJ_ACTIVE; _proj_prompt_update
+[ -z "$PROJ_PROMPT_SEGMENT" ] && [ "$(plain "${PS1@P}")" = 'PROMPT> ' ] || exit 1
+PROJ_ACTIVE=netsurf; _proj_prompt_update
+[ "$(plain "${PS1@P}")" = '[proj:netsurf] PROMPT> ' ] || exit 2
+after_first=$PS1
+_proj_prompt_update; _proj_prompt_update
+[ "$PS1" = "$after_first" ] || exit 3
+unset PROJ_ACTIVE; _proj_prompt_update
+[ "$(plain "${PS1@P}")" = 'PROMPT> ' ] || exit 4
+PS1='before ${PROJ_PROMPT_SEGMENT}after> '; kept=$PS1
+PROJ_ACTIVE=x; _proj_prompt_update
+[ "$PS1" = "$kept" ] && [ "$(plain "${PS1@P}")" = 'before [proj:x]after> ' ] || exit 5
+PS1='plain> '; PROJ_PROMPT=off; _proj_prompt_update
+[ "$PS1" = 'plain> ' ] && [ -n "$PROJ_PROMPT_SEGMENT" ] || exit 6
+unset PROJ_PROMPT
+PS1='p> '; NO_COLOR=1; _proj_prompt_update
+[ "$PROJ_PROMPT_SEGMENT" = '[proj:x]' ] || exit 7
+unset NO_COLOR
+shopt -u promptvars; PS1='nopv> '; _proj_prompt_update
+[ "$PS1" = 'nopv> ' ] || exit 8
+EOF
+bash --norc --noprofile "$tmp/prompt-test.bash" "$root" || fail "Bash prompt segment (step $?)"
+[ "$(bash --norc --noprofile -c 'PROMPT_COMMAND="echo hi"; . "$1/shell/init.bash"; printf "%s" "$PROMPT_COMMAND"' bash "$root" |
+  grep -o _proj_prompt_update | wc -l)" = 1 ] || fail "prompt hook with a string PROMPT_COMMAND"
+bash --norc --noprofile -c '
+  PROMPT_COMMAND=(first second); . "$1/shell/init.bash"
+  [[ " ${PROMPT_COMMAND[*]} " == *" _proj_setup_mamba_alias first second _proj_prompt_update "* ]]
+' bash "$root" || fail "prompt hook with an array PROMPT_COMMAND"
+cat >"$tmp/prompt-test.zsh" <<'EOF'
+source "$1/shell/init.zsh"
+plain() { print -P -- "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
+unset NO_COLOR PROJ_PROMPT DOTS_PROMPT
+PROMPT='PROMPT> '
+unset PROJ_ACTIVE; _proj_prompt_update
+[[ $PROMPT == 'PROMPT> ' && -z $PROJ_PROMPT_SEGMENT ]] || exit 1
+PROJ_ACTIVE=netsurf; _proj_prompt_update
+[[ "$(plain "$PROMPT")" == '[proj:netsurf] PROMPT> ' ]] || exit 2
+_proj_prompt_update; _proj_prompt_update
+[[ "$(plain "$PROMPT")" == '[proj:netsurf] PROMPT> ' ]] || exit 3
+unset PROJ_ACTIVE; _proj_prompt_update
+[[ $PROMPT == 'PROMPT> ' ]] || exit 4
+PROJ_ACTIVE=x; _proj_prompt_update; PROMPT='rebuilt> '; _proj_prompt_update
+[[ "$(plain "$PROMPT")" == '[proj:x] rebuilt> ' ]] || exit 5
+unset PROJ_ACTIVE; _proj_prompt_update
+PROMPT='dots> '; dots_prompt_apply() { :; }; PROJ_ACTIVE=y; _proj_prompt_update
+[[ $PROMPT == 'dots> ' && -n $PROJ_PROMPT_SEGMENT ]] || exit 6
+DOTS_PROMPT=never; _proj_prompt_update
+[[ "$(plain "$PROMPT")" == '[proj:y] dots> ' ]] || exit 7
+PROMPT='off> '; PROJ_PROMPT=off; _proj_prompt_update
+[[ $PROMPT == 'off> ' ]] || exit 8
+EOF
+zsh -f -i "$tmp/prompt-test.zsh" "$root" >/dev/null 2>&1 || fail "Zsh prompt segment (step $?)"
+pass "the prompt shows [proj:<name>] while an environment is active, in Bash and Zsh"
+
 # proj upgrade against a fake GitHub: file:// archives of this tree at other versions.
 upgrade_remote="$tmp/remote"
 make_remote() { # make_remote <ref> <version>

@@ -72,7 +72,40 @@ if (( $+functions[dots_register_tool] )); then
   unset _proj_info _proj_lmod _proj_mamba
 fi
 
+# Prompt segment: "[proj:<name>] " in front of PROMPT while an environment is
+# active, nothing otherwise. A framework that draws the badge itself (dots,
+# unless DOTS_PROMPT=never) is left to do so, and PROJ_PROMPT=off disables this.
+# PROJ_PROMPT_SEGMENT holds the segment in prompt-escape form for prompts that
+# place it themselves (they need prompt_subst).
+typeset -g _proj_prompt_badge=''
+_proj_prompt_update() {
+  emulate -L zsh
+  [[ -o interactive ]] || return 0
+  local badge=''
+  if [[ -n ${PROJ_ACTIVE-} ]]; then
+    if [[ -n ${NO_COLOR-} ]]; then
+      badge="[proj:${PROJ_ACTIVE}]"
+    else
+      badge="%F{134}[proj:%f%F{cyan}${PROJ_ACTIVE}%f%F{134}]%f"
+    fi
+  fi
+  typeset -g PROJ_PROMPT_SEGMENT=$badge
+  case ${PROJ_PROMPT:-auto} in off|never|0) return 0 ;; esac
+  if (( $+functions[dots_prompt_apply] )) && [[ ${DOTS_PROMPT:-always} != (never|0) ]]; then
+    return 0
+  fi
+  # Forget the badge this hook added earlier, then add the current one.
+  [[ -n $_proj_prompt_badge && $PROMPT == "$_proj_prompt_badge "* ]] &&
+    PROMPT=${PROMPT#"$_proj_prompt_badge "}
+  _proj_prompt_badge=''
+  if [[ -n $badge ]]; then
+    PROMPT="$badge $PROMPT"
+    _proj_prompt_badge=$badge
+  fi
+}
+
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd _proj_setup_mamba_alias
+add-zsh-hook precmd _proj_prompt_update
 
 source "$PROJ_TOOL_ROOT/shell/completion.zsh"

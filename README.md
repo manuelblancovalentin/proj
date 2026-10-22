@@ -62,6 +62,7 @@ $ proj deactivate
   - [State drift and `proj status`](#state-drift-and-proj-status)
   - [Additional metadata roots](#additional-metadata-roots)
   - [Shell integration, completion, and prompts](#shell-integration-completion-and-prompts)
+  - [The prompt segment](#the-prompt-segment)
   - [Customizing `proj info` for a site](#customizing-proj-info-for-a-site)
   - [Choosing the Python interpreter that runs proj](#choosing-the-python-interpreter-that-runs-proj)
 - [Troubleshooting](#troubleshooting)
@@ -695,6 +696,7 @@ effective site configuration, registries, and Python manager.
 | `PROJ_PROJECT_ROOTS` | Extra metadata roots (colon-separated) |
 | `PROJ_CACHE_HOME` | Cache directory (`~/.cache/proj`) |
 | `PROJ_PYTHON` | Interpreter that runs proj |
+| `PROJ_PROMPT` | `off` stops the adapters from adding the prompt segment |
 | `PROJ_GLOBAL_BIN`, `PROJ_GLOBAL_MAN`, `PROJ_GLOBAL_TLDR` | Link targets of `proj install` |
 
 While an environment is active, proj sets `PROJ_ACTIVE`, `PROJ_ROOT`,
@@ -826,6 +828,8 @@ process, so it adds a couple of milliseconds to shell startup. The adapter:
 
 - puts proj's `bin/`, manual, and TLDR directories on `PATH`, `MANPATH`, and
   `XDG_DATA_DIRS`, once;
+- shows `[proj:<name>]` in the prompt while an environment is active (see
+  [The prompt segment](#the-prompt-segment));
 - registers completion for commands, options, environment names, Python
   environments, and Lmod modules, computed only when you press Tab;
 - adds a `mamba` alias for `micromamba` at the first prompt, unless a real
@@ -833,7 +837,32 @@ process, so it adds a couple of milliseconds to shell startup. The adapter:
 - uses the dots shell framework's `ok`/`info`/`error` helpers and panel for
   `proj info` when dots is loaded, with a plain fallback otherwise.
 
-To show the active environment in your prompt, read `$PROJ_ACTIVE`.
+### The prompt segment
+
+While an environment is active, the adapters show `[proj:<name>]` in front of
+your prompt, and nothing once it is deactivated:
+
+```text
+manuelbv@kona-ubuntu:~$ proj activate netsurf
+[proj:netsurf] manuelbv@kona-ubuntu:netsurf$
+```
+
+Whoever owns the prompt should draw it, so this is a default, not a takeover:
+
+- The adapter maintains `PROJ_PROMPT_SEGMENT` (empty when nothing is active)
+  in the shell's own format, with no subprocess per prompt.
+- If the prompt does not mention that variable, the hook puts the segment in
+  front of `PS1` (Bash) or `PROMPT` (Zsh), and again if a theme rebuilds the
+  prompt. A prompt that wants it elsewhere includes it itself, for example
+  `PS1='\u@\h \w ${PROJ_PROMPT_SEGMENT}\$ '`; the hook then leaves `PS1`
+  alone. In Zsh the value uses prompt escapes, so place it with `prompt_subst`.
+- A framework that already draws the badge from `$PROJ_ACTIVE` takes
+  precedence: with dots loaded, proj adds nothing (unless `DOTS_PROMPT=never`),
+  so the badge never appears twice.
+- `PROJ_PROMPT=off` disables the automatic insertion (the variable is still
+  maintained), and `NO_COLOR` makes the segment plain text.
+
+Any other prompt can read `$PROJ_ACTIVE` directly.
 
 ### Customizing `proj info` for a site
 

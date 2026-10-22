@@ -72,6 +72,12 @@ activation.
   configuration loads so a broken configuration cannot block it. The source
   repository and ref live in `PREFIX/etc/source.toml`; `PROJ_UPGRADE_BASE`
   replaces the host for tests.
+- The adapters never take over a prompt. They maintain `PROJ_PROMPT_SEGMENT`
+  (no subprocess per prompt) and, only when the prompt does not mention it
+  and `PROJ_PROMPT` is not `off`, put it in front of `PS1`/`PROMPT`. A
+  framework that renders the badge itself (dots, unless `DOTS_PROMPT=never`)
+  takes precedence so the badge never appears twice. `PROMPT_COMMAND` is
+  handled in both its string and array forms.
 - Never emulate or fall back from Lmod.
 - Project configuration is metadata-driven; never hardcode a project name.
 - Managed metadata lives at `<registry>/<name>/project.toml` (private default

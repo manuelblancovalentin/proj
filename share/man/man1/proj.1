@@ -1,4 +1,4 @@
-.TH PROJ 1 "October 2026" "proj 0.6.0" "User Commands"
+.TH PROJ 1 "October 2026" "proj 0.7.0" "User Commands"
 .SH NAME
 proj \- manage project development environments with Lmod
 .SH SYNOPSIS
@@ -257,6 +257,20 @@ Override the shared registry and its group.
 .TP
 .B PROJ_PYTHON_MANAGER
 Override the default Python manager.
+.TP
+.B PROJ_PROMPT
+.B off
+stops the shell adapters from putting
+.B [proj:\fIname\fB]
+in front of the prompt while an environment is active. The variable
+.B PROJ_PROMPT_SEGMENT
+is still maintained (empty when nothing is active), for prompts that place it
+themselves; if the prompt already contains it, nothing is inserted. A
+framework that draws the badge from
+.B PROJ_ACTIVE
+(dots) takes precedence, and
+.B NO_COLOR
+makes the segment plain.
 .TP
 .B PROJ_PROJECT_ROOTS
 Colon-separated additional metadata roots.
