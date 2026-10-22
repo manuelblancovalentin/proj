@@ -1,12 +1,20 @@
-# proj
+<div align="center">
+  <img src="docs/static/img/logo.png" alt="proj logo" width="600" />
 
-`proj` gives every project a named, reversible shell environment. One
-command, `proj activate <name>`, loads the project's toolchains through
-[Lmod](https://lmod.readthedocs.io), activates its Python environment
-(micromamba, conda, or mamba), sets its variables, paths, and aliases, moves
-you to the project, and runs its startup hooks. `proj deactivate` undoes all
-of it. Environments can be private or shared with a Unix group, so a whole
-team on one server activates the same, consistent setup.
+  <p>
+    <!-- Replace these with your actual repo badges if you have them -->
+    <a href="https://github.com/manuelblancovalentin/proj/actions"><img src="https://img.shields.io/github/actions/workflow/status/manuelblancovalentin/proj/test.yml?branch=master" alt="Build Status"></a>
+    <a href="https://github.com/manuelblancovalentin/proj/blob/master/LICENSE"><img src="https://img.shields.io/github/license/manuelblancovalentin/proj" alt="License"></a>
+  </p>
+</div>
+
+---
+
+# `Proj`: a lightweight modular project & environment Manager
+
+<p>
+  <code>proj</code> gives every project a named, reversible shell environment. One command, <code>proj activate &lt;name&gt;</code>, loads the project's toolchains through <a href="https://lmod.readthedocs.io">Lmod</a>, activates its Python environment (micomamba, conda or mamba), sets its variables, paths and alisases, moves you to the project dir, and runs its startup hooks. <code>proj deactivate</code> undoes all of it. Environments can be private or shared with a Unix group, so a whole team on one server activates the same, consistent setup.
+</p>
 
 It runs on Linux with Zsh or Bash, needs nothing beyond the system Python
 and Lmod, and is installed with a single script, with or without `sudo`.
@@ -24,6 +32,23 @@ State:        consistent
 $ proj deactivate
  ✅ - Project 'atlas' deactivated ✨
 ```
+
+![proj env stack](docs/static/img/proj_env_stack.jpg)
+
+
+## Citation
+
+If you found this work useful, please consider citing it: 
+```bibtex
+@software{proj2026,
+  author = {Blanco Valentin, Manuel},
+  title = {proj: Lightweight, Modular Project \& Environment Manager},
+  year = {2026},
+  publisher = {GitHub},
+  url = {https://github.com/manuelblancovalentin/proj}
+}
+```
+
 
 ## Table of contents
 
@@ -121,6 +146,9 @@ recipe. When you activate it, proj renders it into an Lmod modulefile,
 module declares `family("project")`, so Lmod guarantees that **one proj
 environment is active per shell**. Different terminals can have different
 environments active at the same time.
+
+![env activation](docs/static/img/env_activation.jpg)
+
 
 Environments live in **registries**:
 
@@ -556,6 +584,8 @@ environments: an administrator installs proj once, every group member can
 activate every shared environment, and each environment can be changed only
 by its creator unless it is made group-writable.
 
+![multi user](docs/static/img/multi_user.jpg)
+
 ### Administrator setup
 
 1. Create the group and add its members (members must log in again for the
@@ -813,6 +843,8 @@ by hand, `proj status` reports the drift and exits with status 2, and `proj
 deactivate` refuses to guess how to undo it. Restore the expected state (for
 example `conda activate atlas`) and deactivate again.
 
+![drift](docs/static/img/drift.jpg)
+
 ### Additional metadata roots
 
 `project_roots` (or `PROJ_PROJECT_ROOTS`) adds directories that are searched
@@ -843,8 +875,8 @@ While an environment is active, the adapters show `[proj:<name>]` in front of
 your prompt, and nothing once it is deactivated:
 
 ```text
-manuelbv@kona-ubuntu:~$ proj activate netsurf
-[proj:netsurf] manuelbv@kona-ubuntu:netsurf$
+user@host:~$ proj activate netsurf
+[proj:netsurf] user@host:netsurf$
 ```
 
 Whoever owns the prompt should draw it, so this is a default, not a takeover:
