@@ -51,3 +51,7 @@
 - Deactivate the current project and restore the previous shell state:
 
 `proj deactivate`
+
+- Delete a project environment, confirming first (the project files are kept):
+
+`proj remove {{project_name}}`

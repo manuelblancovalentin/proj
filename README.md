@@ -42,7 +42,7 @@ $ proj deactivate
   - [Python environments](#python-environments)
   - [Variables, paths, and aliases](#variables-paths-and-aliases)
   - [Hooks](#hooks)
-  - [Renaming and deleting](#renaming-and-deleting)
+  - [Removing and renaming](#removing-and-renaming)
 - [Toolchains and components (Lmod modules)](#toolchains-and-components-lmod-modules)
   - [Adding modules to an environment](#adding-modules-to-an-environment)
   - [Making software available as a module](#making-software-available-as-a-module)
@@ -356,16 +356,31 @@ A failing startup hook aborts activation and rolls it back. Hooks run as
 child processes, so they cannot change your shell; anything they start
 outside the shell (servers, mounts) needs a matching shutdown hook.
 
-### Renaming and deleting
-
-A name cannot be changed after creation; create a new environment and remove
-the old one. There is no delete command, because an environment is just a
-directory:
+### Removing and renaming
 
 ```sh
-rm -r ~/.proj/envs/atlas            # private
-rm -r /opt/proj/envs/atlas          # shared (only its owner can)
+proj remove atlas                   # asks before removing anything
+proj remove atlas --yes             # no questions; keeps other files
+proj remove atlas --yes --delete-files
 ```
+
+`proj remove` shows what it will do and asks `Remove environment 'atlas'?`
+(default no). Removing an environment deletes its `project.toml`, which is
+what registers it. If anything else exists for it, other files you added to
+its directory (`~/.proj/envs/atlas/`, or its folder in the shared registry)
+and the modulefile proj generated in `~/.cache/proj`, it lists them and asks
+whether to delete those too. `--delete-files` and `--keep-files` answer that
+question in advance; with `--yes` alone, they are kept.
+
+It never touches the project directory or the Python environment, which proj
+did not create. It refuses to remove the environment active in your shell
+(deactivate first), and only the owner can remove a shared environment. If
+someone else has the environment active when it is removed, their
+`proj deactivate` still works. Without a terminal, `proj remove` requires
+`--yes`.
+
+A name cannot be changed after creation: create a new environment with the
+same settings and remove the old one.
 
 ## Toolchains and components (Lmod modules)
 
@@ -622,6 +637,7 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj create <name> [--root DIR] [--shared [--group-writable]]` | Register a project |
 | `proj list` | List environments with scope and owner |
 | `proj activate <name>` / `proj deactivate` | Enter or leave an environment |
+| `proj remove <name> [--yes] [--delete-files\|--keep-files]` | Delete an environment, asking first |
 | `proj current` | Print the active environment |
 | `proj status` | Show the active environment and any drift |
 | `proj info [--env NAME]` | Show every effective setting |

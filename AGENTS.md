@@ -107,6 +107,10 @@ Runtime files live under XDG directories:
 Activation is a trust boundary. Aliases and hooks come from project metadata;
 activating someone else's shared environment runs their hooks as you, and proj
 says so.
+`proj remove` deletes only what proj owns (the environment's document, and on
+confirmation its directory and generated modulefile); it never deletes a
+project root or a Python environment, asks before acting, and requires
+`--yes` without a terminal.
 Declarative Lmod state reverses cleanly. Arbitrary external hook side effects
 cannot be automatically reversed and should have matching shutdown hooks.
 

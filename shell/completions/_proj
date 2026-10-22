@@ -41,6 +41,7 @@ commands=(
   'list:List registered projects'
   'activate:Activate a project environment'
   'deactivate:Deactivate the current project'
+  'remove:Delete a project environment'
   'current:Print the active project name'
   'status:Show active project state'
   'info:Show project environment metadata'
@@ -91,6 +92,13 @@ fi
 case $words[2] in
   activate)
     (( CURRENT == 3 )) && _proj_project_names
+    ;;
+  remove)
+    if (( CURRENT == 3 )); then
+      _proj_project_names
+    else
+      _values 'option' --yes --delete-files --keep-files
+    fi
     ;;
   create)
     if [[ ${words[CURRENT-1]-} == --root ]]; then

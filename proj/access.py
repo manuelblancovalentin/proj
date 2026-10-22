@@ -103,8 +103,9 @@ def shared_registry(config: Config) -> Path:
 
 
 def prepare_shared_directory(config: Config, directory: Path, writable: bool) -> int:
-    """Create a shared environment directory and return its file mode."""
-    directory.mkdir()
+    """Create (or reuse, after `proj remove --keep-files`) a shared environment
+    directory and return its file mode."""
+    directory.mkdir(exist_ok=True)
     os.chown(directory, -1, group_id(config))
     os.chmod(directory, SHARED_DIR_MODES[writable])
     return SHARED_FILE_MODES[writable]

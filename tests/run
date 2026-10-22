@@ -582,4 +582,55 @@ if HOME="$install_home" "$shared_proj" create loose --group-writable >/dev/null 
 fi
 pass "shared installations create owner-only and group-writable environments"
 
+remove_env() {
+  PROJ_HOME="$tmp/remove-home" PROJ_CACHE_HOME="$tmp/remove-cache" "$root/bin/proj" "$@"
+}
+mkdir -p "$tmp/work/doomed"
+remove_env create doomed --root "$tmp/work/doomed" >/dev/null || fail "remove fixture"
+remove_env env show doomed >/dev/null
+printf 'notes\n' >"$tmp/remove-home/envs/doomed/notes.md"
+if remove_env remove doomed </dev/null >/dev/null 2>&1; then
+  fail "remove proceeded without confirmation"
+fi
+if PROJ_ACTIVE=doomed remove_env remove doomed --yes >/dev/null 2>&1; then
+  fail "remove deleted the active environment"
+fi
+[ "$("$root/tests/interrupt" env PROJ_HOME="$tmp/remove-home" \
+  PROJ_CACHE_HOME="$tmp/remove-cache" "$root/bin/proj" remove doomed 2>/dev/null)" = 130 ] ||
+  fail "Ctrl+C at the remove prompt"
+[ -f "$tmp/remove-home/envs/doomed/project.toml" ] || fail "remove acted before confirmation"
+remove_env remove doomed --yes >/dev/null || fail "remove --yes"
+[ ! -e "$tmp/remove-home/envs/doomed/project.toml" ] &&
+  [ -f "$tmp/remove-home/envs/doomed/notes.md" ] &&
+  [ -f "$tmp/remove-cache/modulefiles/project/doomed.lua" ] ||
+  fail "remove --yes must keep other files by default"
+[ -z "$(remove_env _complete projects)" ] || fail "removed environment still listed"
+[ -d "$tmp/work/doomed" ] || fail "remove touched the project root"
+remove_env create doomed --root "$tmp/work/doomed" >/dev/null || fail "re-create after remove"
+remove_env remove doomed --yes --delete-files >/dev/null || fail "remove --delete-files"
+[ ! -e "$tmp/remove-home/envs/doomed" ] &&
+  [ ! -e "$tmp/remove-cache/modulefiles/project/doomed.lua" ] ||
+  fail "remove --delete-files left files"
+HOME="$install_home" "$shared_proj" remove team --yes --delete-files >/dev/null &&
+  [ ! -e "$shared_registry/team" ] || fail "owner removes a shared environment"
+pass "proj remove confirms, keeps or deletes files, and protects active environments"
+
+remove_env create orphan --root "$tmp/work/doomed" >/dev/null
+PROJ_HOME="$tmp/remove-home" PROJ_CACHE_HOME="$tmp/remove-cache" \
+  bash --norc --noprofile -c '
+    module() {
+      case $1 in
+        load) export PROJ_ACTIVE=orphan PROJ_MODULE=$2 LOADEDMODULES=$2 ;;
+        unload) unset PROJ_ACTIVE PROJ_MODULE LOADEDMODULES ;;
+      esac
+    }
+    . "$1/shell/init.bash"
+    proj activate orphan >/dev/null || exit 41
+    # Another shell removes it while it is active here.
+    env -u PROJ_ACTIVE "$1/bin/proj" remove orphan --yes >/dev/null || exit 42
+    proj deactivate >/dev/null 2>&1 || exit 43
+    [ -z "${PROJ_ACTIVE-}" ] || exit 44
+  ' bash "$root" || fail "deactivating an environment removed while active"
+pass "an environment removed while active still deactivates cleanly"
+
 printf 'all tests passed\n'

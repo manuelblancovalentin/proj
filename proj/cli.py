@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -34,7 +35,7 @@ from .metadata import (
     load_project,
 )
 from .modulefile import materialize, render
-from .shell import activation_code, deactivation_code
+from .shell import activation_code, deactivation_code, orphan_deactivation_code
 
 
 def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
@@ -101,7 +102,7 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
     mode = None
     if args.shared:
         metadata_path = access.shared_registry(config) / args.name / "project.toml"
-        if metadata_path.parent.exists():
+        if metadata_path.exists():
             raise ProjError(f"environment {args.name!r} already exists at {metadata_path}")
         mode = access.prepare_shared_directory(
             config, metadata_path.parent, args.group_writable
@@ -457,8 +458,85 @@ def _install_link() -> int:
     return 0
 
 
-def cmd_hook(config: Config, args: argparse.Namespace) -> int:
+def _confirm(question: str) -> bool:
+    try:
+        answer = input(f"{question} [y/N]: ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"y", "yes"}
+
+
+def cmd_remove(config: Config, args: argparse.Namespace) -> int:
     project = resolve(config, args.project)
+    name = project.name
+    if os.environ.get("PROJ_ACTIVE") == name:
+        raise ProjError(f"environment {name!r} is active in this shell; deactivate it first")
+    directory = project.metadata_path.parent
+    owner = access.project_owner(project)
+    # The registry's sticky bit already limits removal to the owner; say so
+    # plainly instead of failing halfway with a permission error.
+    if os.getuid() not in (0, directory.stat().st_uid):
+        raise ProjError(f"environment {name!r} belongs to {owner}; only its owner can remove it")
+    if not (os.access(directory, os.W_OK) and os.access(directory.parent, os.W_OK)):
+        raise ProjError(f"cannot remove {directory}: permission denied")
+
+    cache = config.module_cache / "project"
+    generated = [path for path in (cache / f"{name}.lua", cache / f"{name}.sha256") if path.exists()]
+    others = sorted(
+        path
+        for path in directory.rglob("*")
+        if path != project.metadata_path and not path.is_dir()
+    )
+    extra = [*others, *generated]
+
+    print(f"Environment:   {name} ({access.describe_scope(config, project)}, owner {owner})")
+    print(f"Metadata:      {project.metadata_path}")
+    print(f"Project root:  {project.root} (kept)")
+    if project.python_environment:
+        print(f"Python env:    {_python_label(config, project)} (kept)")
+
+    interactive = sys.stdin.isatty()
+    if not args.yes:
+        if not interactive:
+            raise ProjError("refusing to remove without confirmation; pass --yes")
+        if not _confirm(f"Remove environment {name!r}?"):
+            print("Nothing removed.")
+            return 1
+
+    delete_files = args.delete_files
+    if extra and delete_files is None:
+        if interactive and not args.yes:
+            print("Files created for this environment:")
+            for path in extra:
+                print(f"  {path}")
+            delete_files = _confirm("Delete these files too?")
+        else:
+            delete_files = False
+
+    if delete_files:
+        shutil.rmtree(directory)
+        for path in generated:
+            path.unlink()
+    else:
+        project.metadata_path.unlink()
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    print(f"Removed environment {name!r}.")
+    if extra and not delete_files:
+        print("Kept files: " + ", ".join(str(path) for path in extra))
+    return 0
+
+
+def cmd_hook(config: Config, args: argparse.Namespace) -> int:
+    try:
+        project = resolve(config, args.project)
+    except ProjError:
+        # Removed while active elsewhere: no shutdown hooks are left to run.
+        if args.phase == "shutdown":
+            return 0
+        raise
     hooks = project.startup_hooks if args.phase == "startup" else project.shutdown_hooks
     for hook in hooks:
         argv = [project.expand(value) for value in hook.argv]
@@ -546,7 +624,15 @@ def cmd_shell(config: Config, args: argparse.Namespace) -> int:
     if not active:
         print("_proj_no_active")
         return 0
-    project = resolve(config, active)
+    try:
+        project = resolve(config, active)
+    except ProjError:
+        print(
+            f"proj: environment {active!r} no longer exists; deactivating from shell state",
+            file=sys.stderr,
+        )
+        print(orphan_deactivation_code(config, active))
+        return 0
     print(deactivation_code(config, project))
     return 0
 
@@ -618,6 +704,25 @@ def build_parser() -> argparse.ArgumentParser:
     activate = sub.add_parser("activate", help="activate a project")
     activate.add_argument("project")
     sub.add_parser("deactivate", help="deactivate the current project")
+    remove = sub.add_parser("remove", help="delete a project environment")
+    remove.add_argument("project", metavar="name")
+    remove.add_argument(
+        "-y", "--yes", action="store_true", help="remove without asking"
+    )
+    files = remove.add_mutually_exclusive_group()
+    files.add_argument(
+        "--delete-files",
+        dest="delete_files",
+        action="store_true",
+        help="also delete other files in the environment and its generated module",
+    )
+    files.add_argument(
+        "--keep-files",
+        dest="delete_files",
+        action="store_false",
+        help="delete only the environment's project.toml",
+    )
+    remove.set_defaults(delete_files=None)
     shell = sub.add_parser("_shell", help=argparse.SUPPRESS)
     shell.add_argument("action", choices=("activate", "deactivate"))
     shell.add_argument("project", nargs="?")
@@ -672,6 +777,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_env_list(config, args)
         if args.command == "env" and args.env_command == "show":
             return cmd_env_show(config, args)
+        if args.command == "remove":
+            return cmd_remove(config, args)
         if args.command == "_hook":
             return cmd_hook(config, args)
         if args.command == "_shell":
@@ -687,6 +794,9 @@ def main(argv: list[str] | None = None) -> int:
     except ProjError as exc:
         print(f"proj: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("\nproj: aborted", file=sys.stderr)
+        return 130
     except PermissionError as exc:
         print(f"proj: permission denied: {exc.filename or exc}", file=sys.stderr)
         return 2

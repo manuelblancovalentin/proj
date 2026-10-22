@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 
 from .config import Config
@@ -26,6 +27,22 @@ def activation_code(config: Config, project: Project) -> str:
         manager_for(config, project) if project.python_environment else "",
     )
     return "_proj_activate " + " ".join(_q(value) for value in values)
+
+
+def orphan_deactivation_code(config: Config, name: str) -> str:
+    # The environment was removed while active; its metadata is gone, so undo
+    # the activation from the state the module exported into this shell.
+    mamba_env = os.environ.get("PROJ_MAMBA_ENV", "")
+    values = (
+        name,
+        os.environ.get("PROJ_MODULE", f"project/{name}"),
+        config.module_cache,
+        mamba_env,
+        os.environ.get("PROJ_METADATA", ""),
+        "1" if config.change_directory else "0",
+        config.python_manager if mamba_env else "",
+    )
+    return "_proj_deactivate " + " ".join(_q(value) for value in values)
 
 
 def deactivation_code(config: Config, project: Project) -> str:

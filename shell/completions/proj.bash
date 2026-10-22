@@ -21,7 +21,7 @@ _proj_complete() {
   local IFS=$'\n'
 
   if (( COMP_CWORD == 1 )); then
-    candidates=$'create\nlist\nactivate\ndeactivate\ncurrent\nstatus\ninfo\nconfig'
+    candidates=$'create\nlist\nactivate\ndeactivate\nremove\ncurrent\nstatus\ninfo\nconfig'
     candidates+=$'\nset-python-env\npython-env\nmodule\nenv\ndoctor\ninit\ninstall\n--version'
   elif [[ $prev == --env || $prev == --project ]]; then
     candidates=$(_proj_cli _complete projects 2>/dev/null)
@@ -38,6 +38,13 @@ _proj_complete() {
     case $command in
       activate)
         (( COMP_CWORD == 2 )) && candidates=$(_proj_cli _complete projects 2>/dev/null)
+        ;;
+      remove)
+        if (( COMP_CWORD == 2 )); then
+          candidates=$(_proj_cli _complete projects 2>/dev/null)
+        else
+          candidates=$'--yes\n--delete-files\n--keep-files'
+        fi
         ;;
       create)
         (( COMP_CWORD >= 3 )) && candidates=$'--root\n--shared\n--group-writable'

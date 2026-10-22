@@ -1,4 +1,4 @@
-.TH PROJ 1 "October 2026" "proj 0.2.0" "User Commands"
+.TH PROJ 1 "October 2026" "proj 0.3.0" "User Commands"
 .SH NAME
 proj \- manage project development environments with Lmod
 .SH SYNOPSIS
@@ -52,7 +52,21 @@ This command requires the shell integration. Activating an environment owned
 by someone else prints a notice: its hooks and aliases run as you.
 .TP
 .B proj deactivate
-Reverse the activation performed in the current shell.
+Reverse the activation performed in the current shell. This also works when
+the environment was removed while active.
+.TP
+.BR "proj remove " name " [--yes] [--delete-files | --keep-files]"
+Delete an environment's
+.IR project.toml
+after asking for confirmation. Other files in its directory and its generated
+modulefile are listed, and deleted only if confirmed or with
+.BR --delete-files ;
+.B --yes
+alone keeps them. The project root and Python environment are never touched.
+The environment active in the current shell cannot be removed, and only its
+owner can remove a shared environment. Without a terminal,
+.B --yes
+is required.
 .TP
 .B proj current
 Print the active project name. Returns nonzero when none is active.
