@@ -269,7 +269,9 @@ active environment. Changes to an active environment take effect after
 proj create <name>                 # register the current directory
 proj create <name> --root DIR      # register another directory
 proj list                          # NAME, SCOPE, OWNER, DESCRIPTION, ROOT
-proj info [--env <name>]           # every effective setting
+proj avail [category|name]         # modules Lmod can load, grouped by category
+proj info                          # overview: environments and available modules
+proj info --env <name>             # every effective setting of one environment
 proj env show <name>               # settings plus the generated module path
 proj env list                      # generated modules and whether they are current
 ```
@@ -453,8 +455,22 @@ metadata; they are not an Lmod concept:
 | `application` | `vivado/2024.2`, `matlab/R2024b` |
 | `project` | modules shared by a group of related projects |
 
+`proj avail` shows what Lmod can load right now, grouped by these categories,
+with each module's versions (`*` marks the default) and the environments that
+already use it. `proj avail compiler` or `proj avail gcc` filters the list, and
+`proj avail --json` is meant for scripts. `proj info` with no environment
+selected shows the same catalog beneath your list of environments, which is
+the quickest way to see what to pick when creating a new one.
+
+A modulefile places itself in a category with a tag; modules without one are
+listed as *Uncategorized*:
+
+```lua
+whatis("Category: toolchain")   -- compiler, toolchain, application, or project
+```
+
 ```sh
-module avail                                   # what Lmod can load
+proj avail                                     # what Lmod can load, by category
 proj module add toolchain cmake/3.30           # active environment
 proj module add compiler gcc/14 --env atlas
 proj module list toolchain
@@ -482,6 +498,7 @@ help("Node.js 24.18.1")
 whatis("Name: Node.js")
 whatis("Version: 24.18.1")
 family("node")                       -- at most one node version at a time
+whatis("Category: toolchain")        -- where `proj avail` lists it
 
 local root = "/opt/software/node/24.18.1"
 prepend_path("PATH", pathJoin(root, "bin"))
@@ -497,7 +514,7 @@ module use /opt/modulefiles             # shared modules
 module use ~/modulefiles                # personal modules
 ```
 
-Check it with `module avail node`, then run `proj module add toolchain
+Check it with `proj avail node`, then run `proj module add toolchain
 node/24.18.1`. Lmod's documentation covers modulefiles in depth, including
 `depends_on`, `prereq`, and hierarchical module trees.
 
@@ -692,11 +709,12 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 |---|---|
 | `proj create <name> [--root DIR] [--shared [--group-writable]]` | Register a project |
 | `proj list` | List environments with scope and owner |
+| `proj avail [category\|name] [--json]` | List the modules Lmod can load, by category |
 | `proj activate <name>` / `proj deactivate` | Enter or leave an environment |
 | `proj remove <name> [--yes] [--delete-files\|--keep-files]` | Delete an environment, asking first |
 | `proj current` | Print the active environment |
 | `proj status` | Show the active environment and any drift |
-| `proj info [--env NAME]` | Show every effective setting |
+| `proj info [--env NAME]` | Show one environment's settings; with none selected, an overview of environments and available modules |
 | `proj config [--env NAME] <key>[=<value>]` | Read or write metadata |
 | `proj configmenu [--env NAME] [--setup]` | Edit an environment in an interactive menu |
 | `proj set-python-env [--env NAME] [--manager M] <environment>` | Link a Python environment |

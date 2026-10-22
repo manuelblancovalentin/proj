@@ -44,6 +44,7 @@ commands=(
   'remove:Delete a project environment'
   'current:Print the active project name'
   'status:Show active project state'
+  'avail:List the modules Lmod can load, by category'
   'info:Show project environment metadata'
   'config:Read or write project metadata'
   'configmenu:Edit an environment in an interactive menu'
@@ -122,6 +123,9 @@ case $words[2] in
         python.manager python.environment paths.prepend \
         hooks.startup hooks.shutdown
     fi
+    ;;
+  avail)
+    _values 'category or option' compiler toolchain application project --json
     ;;
   info)
     if (( CURRENT == 3 )); then

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, menu_runtime, python_envs
+from . import access, lmod, menu_runtime, python_envs
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -35,25 +35,16 @@ from .metadata import (
     load_project,
 )
 from .modulefile import materialize, render
+from .render import Output
 from .shell import activation_code, deactivation_code, orphan_deactivation_code
 
 
-def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
-    widths = [
-        max(len(headers[i]), *(len(row[i]) for row in rows))
-        if rows
-        else len(headers[i])
-        for i in range(len(headers))
-    ]
-    print("  ".join(value.ljust(widths[i]) for i, value in enumerate(headers)))
-    print("  ".join("-" * width for width in widths))
-    for row in rows:
-        print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)))
+def _table(headers, rows, title=None, flex=None, styles=None) -> None:
+    Output().print_table(headers, rows, title=title, flex=flex, styles=styles)
 
 
-def cmd_list(config: Config, _args: argparse.Namespace) -> int:
-    found = scan(config)
-    rows = [
+def _environment_rows(config: Config, projects) -> list[tuple[str, ...]]:
+    return [
         (
             project.name,
             access.scope(config, project),
@@ -61,11 +52,173 @@ def cmd_list(config: Config, _args: argparse.Namespace) -> int:
             project.description,
             str(project.root),
         )
-        for project in sorted(found.projects.values(), key=lambda item: item.name)
+        for project in sorted(projects, key=lambda item: item.name)
     ]
-    _table(("NAME", "SCOPE", "OWNER", "DESCRIPTION", "ROOT"), rows)
+
+
+NO_ENVIRONMENTS = "No environments yet. In a project directory, run: proj create <name>"
+
+
+def cmd_list(config: Config, _args: argparse.Namespace) -> int:
+    found = scan(config)
+    if found.projects:
+        _table(
+            ("NAME", "SCOPE", "OWNER", "DESCRIPTION", "ROOT"),
+            _environment_rows(config, found.projects.values()),
+            flex=4,
+        )
+    else:
+        print(NO_ENVIRONMENTS)
     for _path, problem in found.problems:
         print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
+    return 0
+
+
+CATEGORY_TITLES = {
+    "compiler": "Compilers",
+    "toolchain": "Toolchains",
+    "application": "Applications",
+    "project": "Project modules",
+    "": "Uncategorized",
+}
+
+
+def _used_by(projects) -> dict[str, list[str]]:
+    users: dict[str, list[str]] = {}
+    for project in projects:
+        for category in MODULE_CATEGORIES:
+            for module in project.modules.get(category, ()):
+                names = users.setdefault(module.partition("/")[0], [])
+                if project.name not in names:
+                    names.append(project.name)
+    return users
+
+
+def _print_catalog(config: Config, query: str | None, as_json: bool) -> int:
+    out = Output()
+    projects = list(discover(config).values())
+    entries = lmod.catalog(exclude=(config.module_cache,))
+    if query:
+        needle = query.lower()
+        entries = [
+            entry
+            for entry in entries
+            if needle == entry.category or needle in entry.name.lower()
+        ]
+    if as_json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "name": entry.name,
+                        "versions": list(entry.versions),
+                        "default": entry.default,
+                        "category": entry.category or None,
+                        "description": entry.description or None,
+                    }
+                    for entry in entries
+                ],
+                indent=2,
+            )
+        )
+        return 0 if entries else 1
+    if not entries:
+        print(f"No modules match {query!r}." if query else "Lmod lists no modules.")
+        return 1
+    users = _used_by(projects)
+    groups: dict[str, list] = {}
+    for entry in entries:
+        groups.setdefault(entry.category, []).append(entry)
+    known = [name for name in lmod.CATEGORIES if name in groups]
+    extra = sorted(name for name in groups if name and name not in lmod.CATEGORIES)
+    order = known + extra + ([""] if "" in groups else [])
+
+    search = [
+        path
+        for path in os.environ.get("MODULEPATH", "").split(os.pathsep)
+        if path and Path(path) != config.module_cache
+    ]
+    packages = len(entries)
+    versions = sum(max(1, len(entry.versions)) for entry in entries)
+    count = f"{packages} package{'s' * (packages != 1)}, {versions} version{'s' * (versions != 1)}"
+    print(out.heading("Available modules") + out.paint("  " + count, "dim"))
+    if search:
+        print(out.note("Lmod search path: " + ", ".join(search)))
+    for category in order:
+        members = groups[category]
+        title = CATEGORY_TITLES.get(category, category.title())
+        with_description = any(entry.description for entry in members)
+        headers = ["MODULE", "VERSIONS"]
+        if with_description:
+            headers.append("DESCRIPTION")
+        if projects:
+            headers.append("USED BY")
+        rows = []
+        for entry in members:
+            shown = "  ".join(
+                version + ("*" if version == entry.default else "")
+                for version in entry.versions
+            )
+            row = [entry.name, shown]
+            if with_description:
+                row.append(entry.description)
+            if projects:
+                names = users.get(entry.name, [])
+                row.append(
+                    ", ".join(names[:3]) + (f" +{len(names) - 3}" if len(names) > 3 else "")
+                )
+            rows.append(row)
+        print()
+        out.print_table(
+            headers,
+            rows,
+            title=f"{title} ({len(members)})",
+            flex=1,
+            styles=[("bold",), (), ("dim",), ("dim",)][: len(headers)],
+        )
+    print()
+    print(out.note("* default version (loaded when no version is given; pin one in an environment)"))
+    if "" in groups:
+        print(
+            out.note(
+                'Uncategorized modules have no tag; add whatis("Category: toolchain") '
+                "(compiler, toolchain, application, or project) to their modulefile."
+            )
+        )
+    return 0
+
+
+def cmd_avail(config: Config, args: argparse.Namespace) -> int:
+    return _print_catalog(config, args.query, args.json)
+
+
+def cmd_overview(config: Config) -> int:
+    """`proj info` with no environment: what exists, and where to look next."""
+    out = Output()
+    found = scan(config)
+    if found.projects:
+        _table(
+            ("NAME", "SCOPE", "OWNER", "DESCRIPTION", "ROOT"),
+            _environment_rows(config, found.projects.values()),
+            title=f"Environments ({len(found.projects)})",
+            flex=4,
+        )
+    else:
+        print(NO_ENVIRONMENTS)
+    for _path, problem in found.problems:
+        print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
+    print()
+    try:
+        _print_catalog(config, None, False)
+    except ProjError as exc:
+        print(out.note(f"Modules: {exc}"))
+    print()
+    print(
+        out.note(
+            "proj info --env <name> shows one environment; proj avail [category|name] "
+            "filters the modules; proj create <name> starts a new environment."
+        )
+    )
     return 0
 
 
@@ -170,13 +323,19 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
 
 
 def cmd_info(config: Config, args: argparse.Namespace) -> int:
+    if not (args.project or os.environ.get("PROJ_ACTIVE")):
+        return cmd_overview(config)
     project = _selected_project(config, args.project)
     print(f"Project environment: {project.name}")
-    _table(("FIELD", "VALUE"), _info_rows(config, project))
+    _table(("FIELD", "VALUE"), _info_rows(config, project), flex=1)
     return 0
 
 
 def cmd_info_code(config: Config, args: argparse.Namespace) -> int:
+    if not (args.project or os.environ.get("PROJ_ACTIVE")):
+        # No environment to render: let the CLI print the overview directly.
+        print("_proj_cli info")
+        return 0
     project = _selected_project(config, args.project)
     values = [project.name]
     for label, value in _info_rows(config, project):
@@ -637,6 +796,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"proj {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="list registered projects")
+    avail = sub.add_parser(
+        "avail", help="list the modules Lmod can load, by category"
+    )
+    avail.add_argument(
+        "query",
+        nargs="?",
+        help="a category (compiler, toolchain, application, project) or part of a module name",
+    )
+    avail.add_argument("--json", action="store_true", help="print JSON")
     sub.add_parser("status", help="show active project state")
     sub.add_parser("current", help="print the active project name")
     sub.add_parser("doctor", help="check dependencies and integration")
@@ -747,6 +915,8 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config()
         if args.command == "list":
             return cmd_list(config, args)
+        if args.command == "avail":
+            return cmd_avail(config, args)
         if args.command == "_complete":
             return cmd_complete(config, args)
         if args.command == "info":

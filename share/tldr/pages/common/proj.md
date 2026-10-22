@@ -24,6 +24,14 @@
 
 `proj status`
 
+- List the available modules by category (compilers, toolchains, applications):
+
+`proj avail {{[category|name]}}`
+
+- Show environments and available modules, or one environment's metadata:
+
+`proj info`
+
 - Display the active or a named environment's effective metadata:
 
 `proj info {{[--env environment_name]}}`

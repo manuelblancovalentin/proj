@@ -633,6 +633,72 @@ PROJ_HOME="$tmp/remove-home" PROJ_CACHE_HOME="$tmp/remove-cache" \
   ' bash "$root" || fail "deactivating an environment removed while active"
 pass "an environment removed while active still deactivates cleanly"
 
+# proj avail and the no-environment proj info overview, against a fake Lmod.
+fake_lmod="$tmp/lmod"
+cat >"$fake_lmod" <<'EOF'
+#!/bin/sh
+shift
+case "$*" in
+  '--terse avail')
+    printf '%s\n' '/opt/modulefiles:' gcc/ gcc/11.5.0 gcc/13.3.0 node/ node/24.21.0 \
+      verilator/ verilator/5.039 "$PROJ_CACHE_HOME/modulefiles:" project/ project/atlas >&2 ;;
+  '--terse --default avail')
+    printf '%s\n' '/opt/modulefiles:' gcc/13.3.0 node/24.21.0 verilator/5.039 >&2 ;;
+  whatis*)
+    printf '%s\n' 'gcc/13.3.0 : Category: compiler' 'node/24.21.0 : Name: Node.js' \
+      'verilator/5.039 : Category: toolchain' >&2 ;;
+esac
+EOF
+chmod +x "$fake_lmod"
+avail_env() {
+  LMOD_CMD="$fake_lmod" PROJ_COLOR=never PROJ_HOME="$tmp/avail-home" \
+    PROJ_CACHE_HOME="$tmp/avail-cache" MODULEPATH=/opt/modulefiles "$@"
+}
+mkdir -p "$tmp/work/avail"
+[ "$(avail_env "$root/bin/proj" list)" = \
+  'No environments yet. In a project directory, run: proj create <name>' ] ||
+  fail "proj list hint without environments"
+avail_env "$root/bin/proj" create availenv --root "$tmp/work/avail" >/dev/null
+avail_env "$root/bin/proj" module add compiler gcc/13.3.0 --env availenv >/dev/null
+avail_catalog=$(avail_env "$root/bin/proj" avail)
+for expected in 'Compilers (1)' 'Toolchains (1)' 'Uncategorized (1)' 'gcc  *11.5.0  13.3.0\*  availenv' \
+  'verilator  *5.039\*' 'node  *24.21.0\*  Node.js'; do
+  printf '%s\n' "$avail_catalog" | grep -q "$expected" || fail "proj avail lacks '$expected'"
+done
+printf '%s\n' "$avail_catalog" | grep -q 'project/\|atlas' &&
+  fail "proj avail listed a proj-generated module"
+[ "$(avail_env "$root/bin/proj" avail compiler | grep -c '^Compilers\|^Toolchains')" = 1 ] ||
+  fail "proj avail category filter"
+avail_env "$root/bin/proj" avail ver | grep -q '^verilator' || fail "proj avail name filter"
+avail_env "$root/bin/proj" avail nothing-like-this >/dev/null && fail "empty match must fail"
+avail_env "$root/bin/proj" avail --json | /usr/bin/python3 -c '
+import json, sys
+names = {item["name"]: item for item in json.load(sys.stdin)}
+assert set(names) == {"gcc", "node", "verilator"}, names
+assert names["gcc"]["default"] == "13.3.0" and names["node"]["category"] is None
+' || fail "proj avail --json"
+avail_overview=$(avail_env "$root/bin/proj" info)
+for expected in 'availenv' 'Available modules' 'proj info --env <name>'; do
+  printf '%s\n' "$avail_overview" | grep -q "$expected" || fail "proj info overview lacks '$expected'"
+done
+avail_env "$root/bin/proj" info --env availenv | grep -q 'Compiler modules *gcc/13.3.0' ||
+  fail "proj info --env still shows the environment"
+for adapter_shell in bash zsh; do
+  adapter_flags=--norc; [ "$adapter_shell" = zsh ] && adapter_flags=-f
+  adapter_init="$root/shell/init.$adapter_shell"
+  avail_env env -u PROJ_ACTIVE "$adapter_shell" "$adapter_flags" -c '
+    . "$1" 2>/dev/null || source "$1"
+    proj info
+  ' "$adapter_shell" "$adapter_init" | grep -q 'Available modules' ||
+    fail "proj info overview through the $adapter_shell adapter"
+done
+if [ -z "$(PATH=/usr/bin:/bin command -v lmod)" ]; then
+  [ "$(env -u LMOD_CMD PATH=/usr/bin:/bin PROJ_COLOR=never PROJ_HOME="$tmp/avail-home" \
+    "$root/bin/proj" info | grep -c 'Modules: Lmod is not available')" = 1 ] ||
+    fail "proj info without Lmod"
+fi
+pass "proj avail groups modules by category and proj info shows an overview without an environment"
+
 if PROJ_HOME="$managed_home" "$root/bin/proj" configmenu --env atlas </dev/null \
   >/dev/null 2>"$tmp/menu-error"; then
   fail "configmenu ran without a terminal"

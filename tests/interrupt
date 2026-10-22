@@ -31,6 +31,10 @@ while time.monotonic() < deadline:
             break
         output += chunk
     if not interrupted and output.rstrip(b" ").endswith(b"]:"):
+        # The prompt is printed just before the shell blocks in read(). Pressing
+        # Ctrl+C inside that microsecond gap can lose the wakeup in shells that
+        # defer trapped signals, which no person can do; wait like a person.
+        time.sleep(0.3)
         os.write(fd, b"\x03")
         interrupted = True
 else:

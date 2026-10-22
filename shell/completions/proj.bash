@@ -21,7 +21,7 @@ _proj_complete() {
   local IFS=$'\n'
 
   if (( COMP_CWORD == 1 )); then
-    candidates=$'create\nlist\nactivate\ndeactivate\nremove\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
+    candidates=$'create\nlist\navail\nactivate\ndeactivate\nremove\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
     candidates+=$'\nset-python-env\npython-env\nmodule\nenv\ndoctor\ninit\ninstall\n--version'
   elif [[ $prev == --env || $prev == --project ]]; then
     candidates=$(_proj_cli _complete projects 2>/dev/null)
@@ -56,6 +56,9 @@ _proj_complete() {
         ;;
       info)
         candidates=--env
+        ;;
+      avail)
+        candidates=$'compiler\ntoolchain\napplication\nproject\n--json'
         ;;
       configmenu)
         candidates=$'--env\n--setup'

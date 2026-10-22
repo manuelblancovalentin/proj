@@ -44,6 +44,11 @@ activation.
   its private virtual environment, `<root>/libexec/menu`, created by
   `proj configmenu --setup`; nothing else may import it. Its editing logic
   lives in the standard-library `proj/menu_state.py`.
+- Modules declare their proj category with `whatis("Category: <compiler|
+  toolchain|application|project>")`; `proj avail` and `proj info` build the
+  catalog from Lmod output and those tags only, and never list the modules
+  proj generates in its own cache. Terminal output goes through
+  `proj/render.py`: boxed and colored on a terminal, plain columns when piped.
 - `proj configmenu` dialogs close on Escape without changes; the main screen
   never quits with unsaved changes without asking, and the question defaults
   to staying. This prevents an active project

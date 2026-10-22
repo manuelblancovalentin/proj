@@ -3,10 +3,28 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
 
 from .errors import ProjError
+
+CATEGORIES = ("compiler", "toolchain", "application", "project")
+_WHATIS_LINE = re.compile(r"^(\S+)\s+:\s?(.*)$")
+
+
+@dataclass(frozen=True)
+class ModuleEntry:
+    """One module name with its versions, as Lmod can load it."""
+
+    name: str
+    versions: tuple[str, ...]
+    default: str | None
+    category: str  # one of CATEGORIES, another tag a modulefile chose, or ""
+    description: str
 
 
 def lmod_command() -> str | None:
@@ -16,25 +34,101 @@ def lmod_command() -> str | None:
     return shutil.which("lmod")
 
 
-def available_modules() -> list[str]:
-    """Every module Lmod can load with the current MODULEPATH."""
+def _lmod(*arguments: str) -> str:
+    """Run an Lmod sub-command and return its message output (stderr)."""
     command = lmod_command()
     if not command:
         raise ProjError("Lmod is not available; set LMOD_CMD or initialize Lmod")
     completed = subprocess.run(
-        [command, "bash", "--terse", "avail"],
+        [command, "bash", *arguments],
         text=True,
         capture_output=True,
         check=False,
     )
     if completed.returncode:
-        raise ProjError(completed.stderr.strip() or "module avail failed")
-    modules = []
-    # Terse output goes to stderr: "path:" headers, "name/" directory lines,
-    # and one "name/version" per module, possibly followed by markers.
-    for line in completed.stderr.splitlines():
+        raise ProjError(completed.stderr.strip() or f"module {' '.join(arguments)} failed")
+    return completed.stderr
+
+
+def parse_avail(text: str, exclude: Iterable[Path] = ()) -> dict[str, list[str]]:
+    """Map module names to versions from `module --terse avail` output.
+
+    The output is a sequence of "<directory>:" headers, "name/" lines for
+    directories of versions, and one "name/version" line per module. Modules
+    listed under an excluded directory (proj's own generated modules) are
+    skipped.
+    """
+    skipped = [Path(path) for path in exclude]
+    modules: dict[str, list[str]] = {}
+    skipping = False
+    for line in text.splitlines():
         line = line.strip()
-        if not line or line.endswith((":", "/")):
+        if not line:
             continue
-        modules.append(line.split()[0])
-    return sorted(set(modules))
+        if line.endswith(":"):
+            directory = Path(line[:-1])
+            skipping = any(directory == path or path in directory.parents for path in skipped)
+            continue
+        if skipping or line.endswith("/"):
+            continue
+        name, _, version = line.split()[0].partition("/")
+        versions = modules.setdefault(name, [])
+        if version and version not in versions:
+            versions.append(version)
+    return modules
+
+
+def parse_whatis(text: str) -> dict[str, list[str]]:
+    """Map module names to their whatis strings from `module whatis` output."""
+    result: dict[str, list[str]] = {}
+    for line in text.splitlines():
+        match = _WHATIS_LINE.match(line.strip())
+        if match:
+            name = match.group(1).partition("/")[0]
+            result.setdefault(name, []).append(match.group(2).strip())
+    return result
+
+
+def _tag(whatis: list[str], key: str) -> str:
+    prefix = key.lower() + ":"
+    for text in whatis:
+        if text.lower().startswith(prefix):
+            return text[len(prefix):].strip()
+    return ""
+
+
+def catalog(exclude: Iterable[Path] = ()) -> list[ModuleEntry]:
+    """Every module Lmod can load, with the Category its modulefile declares.
+
+    A modulefile declares its category with `whatis("Category: toolchain")`;
+    the default version's tag is used for the whole module name.
+    """
+    exclude = tuple(exclude)
+    versions = parse_avail(_lmod("--terse", "avail"), exclude)
+    defaults = parse_avail(_lmod("--terse", "--default", "avail"), exclude)
+    whatis = parse_whatis(_lmod("whatis", *sorted(versions))) if versions else {}
+    entries = []
+    for name in sorted(versions):
+        tags = whatis.get(name, [])
+        default = (defaults.get(name) or [None])[0]
+        description = _tag(tags, "Description") or _tag(tags, "Name")
+        entries.append(
+            ModuleEntry(
+                name=name,
+                versions=tuple(versions[name]),
+                default=default or None,
+                category=_tag(tags, "Category").lower(),
+                description=description,
+            )
+        )
+    return entries
+
+
+def available_modules() -> list[str]:
+    """Every loadable module as name/version, for pickers and completion."""
+    modules = parse_avail(_lmod("--terse", "avail"))
+    return sorted(
+        f"{name}/{version}" if version else name
+        for name, versions in modules.items()
+        for version in (versions or [""])
+    )
