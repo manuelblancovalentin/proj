@@ -393,10 +393,14 @@ outside the shell (servers, mounts) needs a matching shutdown hook.
 - **Right panel**: `project.toml` exactly as it will be saved, with changed
   lines marked `❯` and a live validity check.
 - **Dialogs** show live choices: Python managers found on `PATH`, the
-  manager's environments, and every module Lmod can load. These lists are
+  manager's environments, and the modules Lmod can load. These lists are
   scanned when a dialog first opens and cached; **Rescan** refreshes them. The
-  module dialog filters as you type; Enter selects the only match, or adds a
-  module Lmod does not list, and Space toggles entries.
+  module dialog lists the modules tagged with that category (see
+  [Adding modules](#adding-modules-to-an-environment)) plus untagged ones,
+  which are flagged; *Show all categories* reveals the rest, and modules you
+  already chose stay visible. It filters as you type; Enter selects the only
+  match, or adds a module Lmod does not list, and Space toggles entries.
+  proj's own generated `project/<name>` modules are never offered.
 - **Saving**: `Ctrl+S` or the *Save changes* entry, through the same
   validated, atomic write as `proj config`. Changes to an active environment
   apply after reactivation.
@@ -479,7 +483,9 @@ proj module remove toolchain cmake/3.30
 
 Completion helps: `proj module add toolchain <Tab>` lists the modules Lmod
 can load right now, and `proj module remove toolchain <Tab>` lists those the
-environment uses. proj does not check that a module exists when you add it;
+environment uses. Names in the `project/` namespace are reserved for the
+modules proj generates from environments, so an environment cannot depend on
+itself or on another environment. proj does not check that a module exists when you add it;
 a missing module makes `proj activate` fail and roll back.
 
 ### Making software available as a module
@@ -505,9 +511,10 @@ prepend_path("PATH", pathJoin(root, "bin"))
 setenv("NODE_HOME", root)
 ```
 
-Then add the directory to Lmod's search path: for everyone, through your
-distribution's Lmod configuration or a profile script; or for yourself, in
-your startup file before the proj block:
+Then add the directory to Lmod's search path. `module use` affects only the
+shell it runs in, so for everyone it belongs in your distribution's Lmod
+configuration or the site shell init, and for yourself in your startup file
+before the proj block:
 
 ```sh
 module use /opt/modulefiles             # shared modules
@@ -556,6 +563,20 @@ by its creator unless it is made group-writable.
      `/opt/proj/shell/init.bash` or `init.zsh` from your own site profile
      scripts (see [Customizing `proj info` for a site](#customizing-proj-info-for-a-site)).
    - **Per user**: pass `--no-system-init` and let each user run `proj init`.
+
+4. Put your module directories on every user's `MODULEPATH`. `module use <dir>`
+   changes only the shell it runs in (Lmod does not remember it), so a
+   directory such as `/opt/modulefiles` has to be added by the site init that
+   already initializes Lmod, for every shell:
+
+   ```sh
+   module use /opt/modulefiles      # guarded and idempotent in your site profile
+   ```
+
+   An environment's modules can only load if the shell can already see them;
+   proj adds nothing but its own generated modules. `proj doctor` reports
+   *module path* when `MODULEPATH` has no module directories, and `proj avail`
+   and the configuration menu explain the same thing when they find none.
 
 The result:
 
@@ -830,6 +851,11 @@ Start with `proj doctor`; every failing check names the fix. Common cases:
   manager's shell hook (`conda init zsh`, `micromamba shell init`).
 - **`not a member of group 'proj'`**: ask for `usermod -aG proj <user>`, then
   log in again.
+- **`proj avail` or the configuration menu lists no modules** (or only
+  `project/<name>`): `MODULEPATH` has no module directories in this shell.
+  `module use /opt/modulefiles` fixes the current shell only; add it to the
+  site init so every shell has it (`proj doctor` shows the *module path*
+  check).
 - **`proj` runs a different program**: some systems ship an unrelated
   `/usr/bin/proj` (the PROJ cartography tool); initialize the shell so proj's
   `bin/` comes first.

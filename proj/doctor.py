@@ -37,6 +37,11 @@ def run_checks(config: Config) -> list[Check]:
     python_manager = python_envs.manager_for(config)
     python_program = python_envs.executable(python_manager)
     shell_adapter = os.environ.get("PROJ_SHELL_INTEGRATION", "")
+    module_dirs = [
+        path
+        for path in os.environ.get("MODULEPATH", "").split(os.pathsep)
+        if path and Path(path) != config.module_cache
+    ]
     module_detail = "available"
     if not module_function:
         module_detail = "not initialized in this shell"
@@ -60,6 +65,13 @@ def run_checks(config: Config) -> list[Check]:
             "module function",
             module_function,
             module_detail,
+        ),
+        Check(
+            "module path",
+            bool(module_dirs),
+            ", ".join(module_dirs)
+            or "MODULEPATH lists no module directories; `module use <dir>` adds one to this "
+            "shell, and the site init should add it for every shell",
         ),
         Check(
             "python manager",

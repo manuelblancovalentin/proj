@@ -100,6 +100,20 @@ class MetadataTests(unittest.TestCase):
         with self.assertRaises(MetadataError):
             load_project(self.metadata)
 
+    def test_rejects_dependencies_in_the_generated_module_namespace(self):
+        for module in ("project/demo", "project/other", "project"):
+            self.metadata.write_text(
+                project_toml(self.root).replace(
+                    'compiler = ["gcc/14"]', f'compiler = ["{module}"]'
+                )
+            )
+            with self.assertRaisesRegex(MetadataError, "cannot depend on itself"):
+                load_project(self.metadata)
+        self.metadata.write_text(
+            project_toml(self.root).replace('project = ["shared/data"]', 'project = ["projects/data"]')
+        )
+        load_project(self.metadata)  # a different name is fine
+
     def test_rejects_path_outside_project(self):
         self.metadata.write_text(
             project_toml(self.root).replace(

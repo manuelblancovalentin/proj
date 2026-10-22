@@ -681,6 +681,14 @@ avail_overview=$(avail_env "$root/bin/proj" info)
 for expected in 'availenv' 'Available modules' 'proj info --env <name>'; do
   printf '%s\n' "$avail_overview" | grep -q "$expected" || fail "proj info overview lacks '$expected'"
 done
+before_toml=$(cat "$tmp/avail-home/envs/availenv/project.toml")
+if avail_env "$root/bin/proj" module add compiler project/availenv --env availenv \
+  >/dev/null 2>"$tmp/ns-error"; then
+  fail "an environment was allowed to depend on its own generated module"
+fi
+grep -q 'cannot depend on itself' "$tmp/ns-error" || fail "reserved namespace message"
+[ "$(cat "$tmp/avail-home/envs/availenv/project.toml")" = "$before_toml" ] ||
+  fail "rejected dependency changed the document"
 avail_env "$root/bin/proj" info --env availenv | grep -q 'Compiler modules *gcc/13.3.0' ||
   fail "proj info --env still shows the environment"
 for adapter_shell in bash zsh; do

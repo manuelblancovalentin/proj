@@ -27,6 +27,15 @@ Some systems ship an unrelated `/usr/bin/proj` (the PROJ cartography tool).
 Initialize the shell so proj's `bin/` directory comes first on `PATH`, or
 call the installed launcher by its full path.
 
+## No modules listed, or only `project/<name>`
+
+`proj avail`, the configuration menu, and activation see the modules in
+`MODULEPATH`. `module use <dir>` changes only the shell it runs in, and Lmod
+does not remember it, so every shell needs the directory from the site init
+(for example `module use /opt/modulefiles`). `proj doctor` reports *module
+path* when `MODULEPATH` has no module directories. proj's own generated
+modules live in `project/` and are never offered as dependencies.
+
 ## Shared environments
 
 `proj doctor` checks the shared registry. "not a member of group" means an

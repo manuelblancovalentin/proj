@@ -13,7 +13,7 @@ from . import access, python_envs
 from .config import Config
 from .editor import load_document, render_document, update_document
 from .errors import ProjError
-from .lmod import available_modules
+from .lmod import catalog
 from .metadata import MODULE_CATEGORIES, PYTHON_MANAGERS, Project, load_project
 
 HOOK_PHASES = ("startup", "shutdown")
@@ -186,9 +186,14 @@ class MenuState:
     def scan_python_environments(self) -> dict[str, Path]:
         return python_envs.environments(self.manager)
 
-    @staticmethod
-    def scan_modules() -> list[str]:
-        return available_modules()
+    def scan_modules(self) -> list[tuple[str, str]]:
+        """Every module an environment can use, as (name/version, category tag)."""
+        choices = []
+        for entry in catalog(exclude=(self.config.module_cache,)):
+            for version in entry.versions or ("",):
+                name = f"{entry.name}/{version}" if version else entry.name
+                choices.append((name, entry.category))
+        return choices
 
 
 def format_hook(argv: list[str]) -> str:

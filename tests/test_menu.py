@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - depends on the interpreter
 
 from proj.config import load_config
 from proj.discovery import resolve
+from proj.lmod import ModuleEntry
 from proj.editor import create_document, load_document
 
 if textual:
@@ -50,7 +51,13 @@ class ConfigMenuTests(unittest.IsolatedAsyncioTestCase):
         os.environ.pop("PROJ_ACTIVE", None)
         config = load_config()
         self.state = MenuState(config, resolve(config, "atlas"))
-        self.state.scan_modules = lambda: ["cmake/3.30", "gcc/14", "ninja/1.12"]
+        self.state.scan_modules = lambda: [
+            ("cmake/3.30", "toolchain"),
+            ("gcc/14", "compiler"),
+            ("genus/21.1", "application"),
+            ("ninja/1.12", "toolchain"),
+            ("node/24.21.0", ""),  # untagged
+        ]
         self.state.scan_managers = lambda: {"micromamba": None, "conda": "/opt/conda/bin/conda", "mamba": None}
         self.state.scan_python_environments = lambda: {
             "base": Path("/opt/conda"),
@@ -151,6 +158,68 @@ class ConfigMenuTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(self.state.python_environment, "ml")
 
+    @staticmethod
+    def listed(dialog):
+        listing = dialog.query_one("#modules")
+        return [listing.get_option_at_index(i).value for i in range(listing.option_count)]
+
+    async def test_module_picker_lists_its_category_and_untagged_modules(self):
+        async with self.app.run_test(size=(120, 40)) as pilot:
+            await self.open_entry(pilot, "modules:compiler")
+            await self.settle(pilot)
+            self.assertEqual(self.listed(self.app.screen), ["gcc/14", "node/24.21.0"])
+            await pilot.click("#cancel")
+            await pilot.pause()
+            await self.open_entry(pilot, "modules:toolchain")
+            self.assertEqual(
+                self.listed(self.app.screen), ["cmake/3.30", "ninja/1.12", "node/24.21.0"]
+            )
+            await pilot.click("#cancel")
+            await pilot.pause()
+            await self.open_entry(pilot, "modules:application")
+            self.assertEqual(self.listed(self.app.screen), ["genus/21.1", "node/24.21.0"])
+
+    async def test_show_all_categories_and_selections_survive_switching_back(self):
+        async with self.app.run_test(size=(120, 40)) as pilot:
+            await self.open_entry(pilot, "modules:compiler")
+            await self.settle(pilot)
+            await pilot.click("#scope")
+            await pilot.pause()
+            self.assertEqual(len(self.listed(self.app.screen)), 5)
+            await pilot.click("#filter")
+            await pilot.press(*"genus", "enter")  # the only match, from another category
+            await pilot.click("#scope")
+            await pilot.pause()
+            self.assertEqual(self.listed(self.app.screen), ["gcc/14", "genus/21.1", "node/24.21.0"])
+            await pilot.click("#apply")
+            await pilot.pause()
+            self.assertEqual(self.state.modules("compiler"), ["genus/21.1"])
+
+    async def test_modules_dialog_refuses_the_generated_namespace(self):
+        async with self.app.run_test(size=(120, 40)) as pilot:
+            await self.open_entry(pilot, "modules:compiler")
+            await self.settle(pilot)
+            await pilot.click("#filter")
+            await pilot.press(*"project/atlas", "enter")
+            await pilot.pause()
+            dialog = self.app.screen
+            self.assertIn("reserved", str(dialog.query_one("#status").render()))
+            self.assertNotIn("project/atlas", dialog.selected)
+            await pilot.click("#apply")
+            await pilot.pause()
+            self.assertEqual(self.state.modules("compiler"), [])
+
+    async def test_empty_scan_explains_module_path(self):
+        self.state.scan_modules = lambda: []
+        with patch.dict(os.environ, {"MODULEPATH": "/opt/elsewhere"}):
+            async with self.app.run_test(size=(120, 40)) as pilot:
+                await self.open_entry(pilot, "modules:toolchain")
+                await self.settle(pilot)
+                text = str(self.app.screen.query_one("#status").render())
+        self.assertIn("MODULEPATH", text)
+        self.assertIn("/opt/elsewhere", text)
+        self.assertIn("module use", text)
+
     async def test_hooks_dialog_adds_and_removes(self):
         async with self.app.run_test(size=(120, 40)) as pilot:
             await self.open_entry(pilot, "hooks:startup")
@@ -165,6 +234,30 @@ class ConfigMenuTests(unittest.IsolatedAsyncioTestCase):
 
 @unittest.skipUnless(textual, "Textual is not installed for this interpreter")
 class MenuStateTests(unittest.TestCase):
+    def test_module_scan_excludes_the_proj_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "work"
+            root.mkdir()
+            metadata = Path(directory) / "home" / "envs" / "atlas" / "project.toml"
+            create_document(metadata, "atlas", root)
+            environment = {
+                "PROJ_HOME": str(Path(directory) / "home"),
+                "PROJ_CACHE_HOME": str(Path(directory) / "cache"),
+            }
+            with patch.dict(os.environ, environment):
+                config = load_config()
+                state = MenuState(config, resolve(config, "atlas"))
+                entries = [
+                    ModuleEntry("gcc", ("13.3.0", "11.5.0"), "13.3.0", "compiler", ""),
+                    ModuleEntry("solo", (), None, "", ""),
+                ]
+                with patch("proj.menu_state.catalog", return_value=entries) as scan:
+                    choices = state.scan_modules()
+        scan.assert_called_once_with(exclude=(config.module_cache,))
+        self.assertEqual(
+            choices, [("gcc/13.3.0", "compiler"), ("gcc/11.5.0", "compiler"), ("solo", "")]
+        )
+
     def test_validation_reports_problems_without_touching_the_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "work"

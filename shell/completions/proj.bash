@@ -7,7 +7,7 @@ _proj_complete_available_modules() {
     line=${line#"${line%%[![:space:]]*}"}
     line=${line%%[[:space:]]*}
     case $line in
-      ''|*:|*/) continue ;;
+      ''|*:|*/|project/*) continue ;;
     esac
     printf '%s\n' "$line"
   done < <(module --terse avail 2>&1)

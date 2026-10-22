@@ -44,6 +44,15 @@ activation.
   its private virtual environment, `<root>/libexec/menu`, created by
   `proj configmenu --setup`; nothing else may import it. Its editing logic
   lives in the standard-library `proj/menu_state.py`.
+- The `project/` module namespace belongs to the modules proj generates from
+  environments (`family("project")`). Metadata validation rejects any
+  `modules.*` entry in it, and no picker, catalog, or completion may offer
+  one. proj never edits `MODULEPATH` beyond its own cache; making module
+  directories visible is the site init's job, and `proj doctor` reports when
+  it was not done.
+- The configuration menu's module pickers list modules by their Category tag
+  (plus untagged ones, flagged, and anything already chosen), with a toggle
+  for all categories.
 - Modules declare their proj category with `whatis("Category: <compiler|
   toolchain|application|project>")`; `proj avail` and `proj info` build the
   catalog from Lmod output and those tags only, and never list the modules

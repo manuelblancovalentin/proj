@@ -20,7 +20,7 @@ _proj_available_modules() {
   for line in ${(f)"$(module --terse avail 2>&1)"}; do
     line=${line##[[:space:]]#}
     line=${line%%[[:space:]]#}
-    [[ -z $line || $line == *: || $line == */ ]] && continue
+    [[ -z $line || $line == *: || $line == */ || $line == project/* ]] && continue
     line=${line%%[[:space:]]##\(*}
     lmod_modules+=("$line")
   done

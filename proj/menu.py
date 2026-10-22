@@ -326,15 +326,18 @@ class ModulesDialog(ScanningDialog):
         self.configured = list(configured)
         self.selected = set(configured)
         self.available: list[str] = []
+        self.tags: dict[str, str] = {}
         self.custom: list[str] = []
+        self.show_all = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
             yield Label(Text(f"{self.category.title()} modules", style="bold"), classes="dialog-title")
             yield Label(
                 Text(
-                    "Type to filter; Enter selects the only match, or adds a name Lmod does not list. "
-                    "Tab moves to the list, where Space toggles.",
+                    f"Listing modules tagged {self.category}, plus untagged ones; \"Show all categories\" "
+                    "lists the rest. Type to filter; Enter selects the only match, or adds a name Lmod "
+                    "does not list. Tab moves to the list, where Space toggles.",
                     style="dim",
                 )
             )
@@ -343,6 +346,7 @@ class ModulesDialog(ScanningDialog):
             yield Label("", id="status")
             with Horizontal(classes="buttons"):
                 yield Button("Rescan", id="rescan")
+                yield Button("Show all categories", id="scope")
                 yield Button("Apply", variant="primary", id="apply")
                 yield Button("Cancel", id="cancel")
 
@@ -357,23 +361,64 @@ class ModulesDialog(ScanningDialog):
     def load(self):
         return self.app.state.scan_modules()
 
-    def scanned(self, modules: list[str]) -> None:
+    def scanned(self, modules: list) -> None:
         self.app.cache[self.cache_key] = modules
-        self.available = modules
+        # Each item is (module, category tag); a bare name counts as untagged.
+        pairs = [item if isinstance(item, tuple) else (item, "") for item in modules]
+        self.available = [name for name, _tag in pairs]
+        self.tags = dict(pairs)
         self.rebuild()
-        self.status(f"{len(modules)} modules available from Lmod; {len(self.selected)} selected")
+        if modules:
+            self.status(self.summary())
+            return
+        directories = [
+            path
+            for path in os.environ.get("MODULEPATH", "").split(os.pathsep)
+            if path and Path(path) != self.app.state.config.module_cache
+        ]
+        self.status(
+            "Lmod lists no modules. It searches only MODULEPATH ("
+            + (", ".join(directories) or "empty")
+            + "). `module use <dir>` adds a directory to this shell; your site init should add "
+            "it for every shell. You can still type module names and press Enter.",
+            error=True,
+        )
 
     def scan_failed(self, message: str) -> None:
         self.available = []
+        self.tags = {}
         self.rebuild()
         self.status(f"{message}. You can still type module names and press Enter.", error=True)
 
-    def candidates(self) -> list[str]:
+    def in_scope(self, name: str) -> bool:
+        tag = self.tags.get(name, "")
+        return self.show_all or not tag or tag == self.category
+
+    def summary(self) -> str:
+        total = len(self.available)
+        shown = sum(1 for name in self.available if self.in_scope(name))
+        if self.show_all:
+            text = f"{total} modules in all categories"
+        else:
+            text = f"{shown} {self.category} or untagged modules"
+            if total > shown:
+                text += f"; {total - shown} in other categories hidden"
+            if shown == 0 and total:
+                text += f'. Tag a modulefile with whatis("Category: {self.category}") to list it here'
+        return f"{text}; {len(self.selected)} selected"
+
+    def everything(self) -> list[str]:
+        """Every name the dialog knows, in scan order, whatever the view."""
         names = list(self.available)
         for name in (*self.configured, *self.custom):
             if name not in names:
                 names.append(name)
         return names
+
+    def candidates(self) -> list[str]:
+        """What the current view lists: in-scope modules plus anything already chosen."""
+        keep = {*self.configured, *self.custom, *self.selected}
+        return [name for name in self.everything() if name in keep or self.in_scope(name)]
 
     def rebuild(self) -> None:
         text = self.query_one("#filter", Input).value.strip().lower()
@@ -384,8 +429,16 @@ class ModulesDialog(ScanningDialog):
             if text and text not in name.lower():
                 continue
             prompt = Text(name)
+            tag = self.tags.get(name, "")
             if name not in known:
-                prompt.append("  not listed by Lmod", style="yellow")
+                prompt.append("  ")
+                prompt.append("not listed by Lmod", style="yellow")
+            elif not tag:
+                prompt.append("  ")
+                prompt.append("untagged", style="yellow dim")
+            elif tag != self.category:
+                prompt.append("  ")
+                prompt.append(tag, style="dim")
             listing.add_option(Selection(prompt, name, name in self.selected))
         if listing.option_count:
             listing.highlighted = 0
@@ -398,16 +451,32 @@ class ModulesDialog(ScanningDialog):
     def filtered(self) -> None:
         self.rebuild()
 
+    @on(Button.Pressed, "#scope")
+    def toggle_scope(self) -> None:
+        self.show_all = not self.show_all
+        self.query_one("#scope", Button).label = (
+            f"Only {self.category}" if self.show_all else "Show all categories"
+        )
+        self.rebuild()
+        self.status(self.summary())
+
     @on(Input.Submitted, "#filter")
     def add_custom(self, event: Input.Submitted) -> None:
         name = event.value.strip()
         if not name:
             self.query_one("#modules", SelectionList).focus()
             return
+        if name.partition("/")[0] == "project":
+            self.status(
+                "project/… is reserved for the modules proj generates from environments; "
+                "an environment cannot depend on one.",
+                error=True,
+            )
+            return
         matches = self.visible()
-        if name not in self.candidates() and len(matches) == 1:
+        if name not in self.everything() and len(matches) == 1:
             name = matches[0]
-        elif name not in self.candidates():
+        elif name not in self.everything():
             self.custom.append(name)
         self.selected.add(name)
         event.input.value = ""
@@ -419,12 +488,12 @@ class ModulesDialog(ScanningDialog):
         listing = event.selection_list
         visible = {listing.get_option_at_index(index).value for index in range(listing.option_count)}
         self.selected = (self.selected - visible) | set(listing.selected)
-        self.status(f"{len(self.selected)} selected")
+        self.status(self.summary())
 
     def result(self) -> list[str]:
         # Keep the configured order, then add new choices in list order.
         kept = [name for name in self.configured if name in self.selected]
-        added = [name for name in self.candidates() if name in self.selected and name not in kept]
+        added = [name for name in self.everything() if name in self.selected and name not in kept]
         return kept + added
 
     @on(Button.Pressed, "#apply")

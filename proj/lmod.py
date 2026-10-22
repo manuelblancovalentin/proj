@@ -13,6 +13,8 @@ from typing import Iterable
 from .errors import ProjError
 
 CATEGORIES = ("compiler", "toolchain", "application", "project")
+# The module namespace proj uses for the modules it generates from environments.
+RESERVED = "project"
 _WHATIS_LINE = re.compile(r"^(\S+)\s+:\s?(.*)$")
 
 
@@ -105,6 +107,7 @@ def catalog(exclude: Iterable[Path] = ()) -> list[ModuleEntry]:
     """
     exclude = tuple(exclude)
     versions = parse_avail(_lmod("--terse", "avail"), exclude)
+    versions.pop(RESERVED, None)
     defaults = parse_avail(_lmod("--terse", "--default", "avail"), exclude)
     whatis = parse_whatis(_lmod("whatis", *sorted(versions))) if versions else {}
     entries = []
@@ -122,13 +125,3 @@ def catalog(exclude: Iterable[Path] = ()) -> list[ModuleEntry]:
             )
         )
     return entries
-
-
-def available_modules() -> list[str]:
-    """Every loadable module as name/version, for pickers and completion."""
-    modules = parse_avail(_lmod("--terse", "avail"))
-    return sorted(
-        f"{name}/{version}" if version else name
-        for name, versions in modules.items()
-        for version in (versions or [""])
-    )

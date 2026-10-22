@@ -18,6 +18,10 @@ ENVIRONMENT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VARIABLE_RE = re.compile(r"\$\{([^}]+)\}")
 MODULE_CATEGORIES = ("project", "toolchain", "application", "compiler")
 SHELLS = ("zsh", "bash")
+# proj generates one Lmod module per environment under this name, so it cannot
+# also name a dependency: an environment would depend on itself or on another
+# environment, and they all share the Lmod family of the same name.
+RESERVED_MODULE_NAMESPACE = "project"
 PYTHON_MANAGERS = ("micromamba", "conda", "mamba")
 
 
@@ -174,6 +178,15 @@ def load_project(metadata_path: Path) -> Project:
         )
         for category in MODULE_CATEGORIES
     }
+    for category, names in modules.items():
+        for module in names:
+            if module.partition("/")[0] == RESERVED_MODULE_NAMESPACE:
+                raise MetadataError(
+                    f"{metadata_path}: modules.{category}: {module!r} is in the "
+                    f"{RESERVED_MODULE_NAMESPACE}/ namespace, which proj uses for the modules "
+                    "it generates from environments; an environment cannot depend on itself "
+                    "or on another environment"
+                )
 
     environment = _table(data, "environment", metadata_path)
     if not all(isinstance(k, str) and isinstance(v, str) for k, v in environment.items()):

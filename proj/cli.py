@@ -122,8 +122,24 @@ def _print_catalog(config: Config, query: str | None, as_json: bool) -> int:
             )
         )
         return 0 if entries else 1
+    search = [
+        path
+        for path in os.environ.get("MODULEPATH", "").split(os.pathsep)
+        if path and Path(path) != config.module_cache
+    ]
     if not entries:
-        print(f"No modules match {query!r}." if query else "Lmod lists no modules.")
+        if query:
+            print(f"No modules match {query!r}.")
+        else:
+            print("Lmod lists no modules.")
+            print(
+                out.note(
+                    "Lmod searches only the directories in MODULEPATH ("
+                    + (", ".join(search) or "empty")
+                    + "). `module use <dir>` adds one to this shell; your site init should "
+                    "add it for every shell."
+                )
+            )
         return 1
     users = _used_by(projects)
     groups: dict[str, list] = {}
@@ -133,11 +149,6 @@ def _print_catalog(config: Config, query: str | None, as_json: bool) -> int:
     extra = sorted(name for name in groups if name and name not in lmod.CATEGORIES)
     order = known + extra + ([""] if "" in groups else [])
 
-    search = [
-        path
-        for path in os.environ.get("MODULEPATH", "").split(os.pathsep)
-        if path and Path(path) != config.module_cache
-    ]
     packages = len(entries)
     versions = sum(max(1, len(entry.versions)) for entry in entries)
     count = f"{packages} package{'s' * (packages != 1)}, {versions} version{'s' * (versions != 1)}"
