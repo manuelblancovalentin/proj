@@ -72,6 +72,13 @@ activation.
   configuration loads so a broken configuration cannot block it. The source
   repository and ref live in `PREFIX/etc/source.toml`; `PROJ_UPGRADE_BASE`
   replaces the host for tests.
+- Activation records the login's loaded modules (`PROJ_LOGIN_MODULES`);
+  deactivation, a failed activation, and `proj use`/`unuse` reloads load back
+  whatever an environment displaced, so a login's own choices survive.
+  `behavior.restore_login_modules` (strictly boolean, default true) switches
+  this off. The record is a plain shell variable, never exported (not even
+  under `set -a`), replaced at each activation, cleared when the environment
+  ends, and not kept at all for a login longer than 4096 characters.
 - `proj use`/`proj unuse` find a module by exact name, then `pdk-<name>`, then
   `suite-<name>`; several matches or none is an error, never a guess. Category
   comes from the module's `Category` tag and access from its `Group` tag

@@ -92,7 +92,47 @@ _proj_cli() {
 }
 
 _proj_clear_shell_state() {
-  unset PROJ_PREVIOUS_PWD PROJ_MAMBA_SHLVL_BEFORE
+  unset PROJ_PREVIOUS_PWD PROJ_MAMBA_SHLVL_BEFORE PROJ_LOGIN_MODULES
+}
+
+# Remember which modules the login had loaded, for _proj_restore_login_modules.
+# The record is a plain shell variable, deliberately not exported: it must not
+# reach the tools and hooks that run in this shell. It is replaced (never
+# appended to) at each activation, which only happens with no environment
+# active, and it is dropped when the environment ends; it can be no larger than
+# the limit below, so a very long login is not remembered rather than kept.
+_proj_record_login_modules() {
+  unset PROJ_LOGIN_MODULES
+  [ -n "${LOADEDMODULES-}" ] || return 0
+  if [ "${#LOADEDMODULES}" -gt 4096 ]; then
+    _proj_log_info 'Your login has too many modules to remember; they will not be restored on deactivate'
+    return 0
+  fi
+  PROJ_LOGIN_MODULES=$LOADEDMODULES
+  # `set -a` would export the assignment above.
+  if [ -n "${ZSH_VERSION-}" ]; then typeset -g +x PROJ_LOGIN_MODULES; else export -n PROJ_LOGIN_MODULES; fi
+}
+
+# Put back the modules the login had loaded that an environment displaced.
+# Lmod swaps another version of a tool, or another member of its family, in
+# silently and does not remember what it replaced, so without this the login's
+# own choice (from the site defaults or a person's own login config) would be
+# lost when the environment is deactivated.
+_proj_restore_login_modules() {
+  [ -n "${PROJ_LOGIN_MODULES-}" ] || return 0
+  local rest=$PROJ_LOGIN_MODULES name
+  while [ -n "$rest" ]; do
+    name=${rest%%:*}
+    case $rest in
+      *:*) rest=${rest#*:} ;;
+      *) rest= ;;
+    esac
+    case ":${LOADEDMODULES-}:" in
+      *":$name:"*) ;;
+      *) module load "$name" >/dev/null 2>&1 || _proj_log_info "could not restore $name" ;;
+    esac
+  done
+  return 0
 }
 
 # Choose the shell function that activates environments for a manager
@@ -125,6 +165,7 @@ _proj_rollback_activation() {
     "$_proj_python_command" deactivate >/dev/null 2>&1
   fi
   module unload "$module_name" >/dev/null 2>&1
+  _proj_restore_login_modules
   module unuse "$module_path" >/dev/null 2>&1
   [ -n "${PROJ_PREVIOUS_PWD-}" ] && _proj_cd "$PROJ_PREVIOUS_PWD"
   _proj_clear_shell_state
@@ -134,7 +175,7 @@ _proj_activate() {
   [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
   local project_name=$1 project_root=$2 module_name=$3 module_path=$4
   local mamba_env=$5 metadata=$6 change_directory=$7 run_hooks=$8
-  local python_manager=${9:-micromamba}
+  local python_manager=${9:-micromamba} restore_login=${10:-1}
   local previous_pwd=$PWD
   local previous_shlvl=${CONDA_SHLVL:-0}
 
@@ -149,7 +190,10 @@ _proj_activate() {
   fi
 
   module use "$module_path" || return
+  if [ "$restore_login" = 1 ]; then _proj_record_login_modules; else unset PROJ_LOGIN_MODULES; fi
   if ! module load "$module_name"; then
+    _proj_restore_login_modules
+    unset PROJ_LOGIN_MODULES
     module unuse "$module_path" >/dev/null 2>&1
     return 2
   fi
@@ -222,6 +266,7 @@ _proj_deactivate() {
     _proj_log_error 'Lmod project unload failed'
     return 2
   fi
+  _proj_restore_login_modules
   module unuse "$module_path" >/dev/null 2>&1
   _proj_clear_shell_state
 
@@ -253,6 +298,7 @@ _proj_reapply() {
     _proj_log_error 'Lmod project unload failed'
     return 2
   fi
+  _proj_restore_login_modules
   if ! _proj_cli _materialize "$project_name" || ! module load "$module_name"; then
     _proj_log_error \
       "Could not reload '$project_name'; the change is saved. Fix the problem, then run: proj activate $project_name"

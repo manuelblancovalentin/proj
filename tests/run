@@ -839,6 +839,143 @@ done
 [ "$(PROJ_ACTIVE=useenv use_proj _complete used)" = 'open
 genus' ] || fail "completion of used modules"
 
+# Modules the login loaded come back when an environment that displaced them is deactivated.
+# A fake Lmod that swaps like the real one: loading a version replaces another of the same name.
+cat >"$tmp/restore-fake.sh" <<'EOF'
+LOADEDMODULES=${LOGIN-}
+export LOADEDMODULES
+# Walk the colon list without word splitting: the adapter runs Zsh with its own options.
+drop() { # drop <exact|base> <name>
+  rest=$LOADEDMODULES; kept=
+  while [ -n "$rest" ]; do
+    m=${rest%%:*}
+    case $rest in *:*) rest=${rest#*:} ;; *) rest= ;; esac
+    if [ "$1" = exact ]; then [ "$m" = "$2" ] && continue; else [ "${m%%/*}" = "$2" ] && continue; fi
+    kept=${kept:+$kept:}$m
+  done
+  LOADEDMODULES=$kept
+}
+remove_base() { drop base "$1"; }
+remove_exact() { drop exact "$1"; }
+add() { LOADEDMODULES=${LOADEDMODULES:+$LOADEDMODULES:}$1; }
+module() {
+  case $1 in
+    use|unuse) return 0 ;;
+    load)
+      case $2 in
+        project/*) remove_base acme; add acme/1.0; add "$2"; export PROJ_ACTIVE=${2#project/} ;;
+        *) remove_base "${2%%/*}"; add "$2" ;;
+      esac ;;
+    unload)
+      case $2 in
+        project/*) remove_exact "$2"; remove_exact acme/1.0; unset PROJ_ACTIVE ;;
+        *) remove_exact "$2" ;;
+      esac ;;
+  esac
+  export LOADEDMODULES
+  return 0
+}
+[ -z "${ALLEXPORT-}" ] || set -a
+EOF
+cat >"$tmp/restore-test.sh" <<'EOF'
+init=$1; env=$2
+. "$RESTORE_FAKE"
+. "$init"
+proj activate "$env" >/dev/null 2>&1 || exit 11
+during=$LOADEDMODULES
+# The record is a plain variable: there while the environment is active (unless switched off),
+# never exported, even when the shell exports every assignment, and gone afterwards.
+if [ "${RECORD-1}" = 1 ]; then
+  [ "${PROJ_LOGIN_MODULES-}" = "${LOGIN-}" ] || [ "${#LOGIN}" -gt 4096 ] || exit 13
+  [ -z "${LOGIN-}" ] || [ "$(sh -c 'printf %s "${PROJ_LOGIN_MODULES-unset}"')" = unset ] || exit 14
+else
+  [ -z "${PROJ_LOGIN_MODULES+set}" ] || exit 15
+fi
+proj deactivate >/dev/null 2>&1 || exit 12
+[ -z "${PROJ_LOGIN_MODULES+set}" ] || exit 16
+printf '%s|%s\n' "$during" "$LOADEDMODULES"
+EOF
+cat >"$tmp/restore-repeat.sh" <<'EOF'
+init=$1; env=$2
+. "$RESTORE_FAKE"
+. "$init"
+sizes=
+for round in 1 2 3 4 5 6 7 8 9 10; do
+  proj activate "$env" >/dev/null 2>&1 || exit 11
+  sizes="$sizes ${#PROJ_LOGIN_MODULES}"
+  proj deactivate >/dev/null 2>&1 || exit 12
+  [ -z "${PROJ_LOGIN_MODULES+set}" ] || exit 16
+done
+[ "$(printf '%s\n' $sizes | sort -u | wc -l | tr -d ' ')" = 1 ] && echo same || echo "grew:$sizes"
+EOF
+use_proj create restore --root "$tmp/work/useenv" >/dev/null
+printf 'schema = 1\n\n[behavior]\nrestore_login_modules = false\n' >"$tmp/restore-off.toml"
+for restore_shell in bash zsh; do
+  restore_flags=--norc; [ "$restore_shell" = zsh ] && restore_flags=-f
+  restore_run() { # <script> -- LOGIN, RECORD, ALLEXPORT and PROJ_CONFIG come from the caller
+    RESTORE_FAKE="$tmp/restore-fake.sh" use_env "$restore_shell" "$restore_flags" "$1" "$root/shell/init.$restore_shell" restore
+  }
+  [ "$(LOGIN='' restore_run "$tmp/restore-test.sh")" = 'acme/1.0:project/restore|' ] || fail "$restore_shell: nothing to restore"
+  [ "$(LOGIN=acme/2.0 restore_run "$tmp/restore-test.sh")" = 'acme/1.0:project/restore|acme/2.0' ] ||
+    fail "$restore_shell: the login's own version must return: $(LOGIN=acme/2.0 restore_run "$tmp/restore-test.sh")"
+  [ "$(LOGIN='other/9:acme/2.0' restore_run "$tmp/restore-test.sh")" = 'other/9:acme/1.0:project/restore|other/9:acme/2.0' ] ||
+    fail "$restore_shell: unrelated login modules must be left alone"
+  # Kill switch: with it off the old behaviour returns and nothing is recorded.
+  off=$(LOGIN=acme/2.0 RECORD=0 PROJ_CONFIG="$tmp/restore-off.toml" restore_run "$tmp/restore-test.sh")
+  [ "$off" = 'acme/1.0:project/restore|' ] || fail "$restore_shell: restore_login_modules = false must not restore: $off"
+  # Not exported even under `set -a`; the same size at every activation; gone after each.
+  [ "$(LOGIN=acme/2.0 ALLEXPORT=1 restore_run "$tmp/restore-test.sh")" = 'acme/1.0:project/restore|acme/2.0' ] ||
+    fail "$restore_shell: the login record leaked under set -a"
+  [ "$(LOGIN=acme/2.0 restore_run "$tmp/restore-repeat.sh")" = same ] || fail "$restore_shell: the login record grew across activations"
+  # A login too long to remember is skipped, not truncated; activation still works.
+  long_login=$(/usr/bin/python3 -I -c 'print(":".join("filler%d/1.0" % i for i in range(600)))')
+  case $(LOGIN="$long_login" restore_run "$tmp/restore-test.sh") in
+    *'acme/1.0:project/restore|'*) ;;
+    *) fail "$restore_shell: a very long login must still activate" ;;
+  esac
+done
+if [ -r /usr/share/lmod/lmod/init/bash ]; then
+  lmod_tree="$tmp/restore-modules"
+  mkdir -p "$lmod_tree/acme" "$lmod_tree/kit-a" "$lmod_tree/kit-b" "$lmod_tree/suite-lab"
+  printf 'family("acme")\n' | tee "$lmod_tree/acme/1.0.lua" >"$lmod_tree/acme/2.0.lua"
+  printf 'family("kit")\n' | tee "$lmod_tree/kit-a/1.lua" >"$lmod_tree/kit-b/1.lua"
+  : >"$lmod_tree/suite-lab/2.lua"
+  printf 'depends_on("acme/2.0")\n' >"$lmod_tree/suite-lab/3.lua"
+  lmod_env() { # <name> <category> <json array of modules>
+    use_proj create "$1" --root "$tmp/work/useenv" >/dev/null
+    use_proj config --env "$1" "modules.$2=$3" >/dev/null
+  }
+  lmod_env lmodpin application '["acme/1.0"]'
+  lmod_env lmodbare application '["acme"]'
+  lmod_env lmodkit project '["kit-b"]'
+  lmod_env lmodsame application '["acme/2.0"]'
+  lmod_env lmodsuite application '["suite-lab"]'
+  lmod_env lmodsuitepin application '["suite-lab/3"]'
+  cat >"$tmp/restore-lmod.sh" <<'EOF'
+. /usr/share/lmod/lmod/init/bash
+export MODULEPATH=$1 PROJ_PROMPT=off
+. "$2/shell/init.bash"
+login=$3; env=$4
+for m in $login; do module load "$m" >/dev/null 2>&1; done
+proj activate "$env" >/dev/null 2>&1 || exit 11
+proj deactivate >/dev/null 2>&1 || exit 12
+printf '%s\n' "${LOADEDMODULES-}"
+EOF
+  restore_lmod() { use_env bash --norc --noprofile "$tmp/restore-lmod.sh" "$lmod_tree" "$root" "$1" "$2" 2>&1 | tail -1; }
+  # The six ways a login and an environment can disagree, then a login with nothing loaded:
+  # <login modules>:<environment>:<modules after deactivation>.
+  for case_ in 'acme/2.0:lmodpin:acme/2.0' 'acme/2.0:lmodbare:acme/2.0' 'kit-a/1:lmodkit:kit-a/1' \
+    'acme/2.0:lmodsame:acme/2.0' 'acme/1.0:lmodsuite:acme/1.0' 'suite-lab/2:lmodsuitepin:suite-lab/2' ':lmodsuite:'; do
+    login_modules=${case_%%:*}; rest=${case_#*:}; environment=${rest%%:*}; expected=${rest#*:}
+    got=$(restore_lmod "$login_modules" "$environment")
+    [ "$got" = "$expected" ] || fail "real Lmod: login '$login_modules' with $environment must end as '$expected', not '$got'"
+  done
+  # With the kill switch off, the displaced module is not put back.
+  got=$(PROJ_CONFIG="$tmp/restore-off.toml" restore_lmod acme/2.0 lmodpin)
+  [ -z "$got" ] || fail "real Lmod: restore_login_modules = false must not restore (left '$got')"
+fi
+pass "deactivation puts the login's modules back, and the switch turns it off"
+
 # The active environment is reloaded in the shell, in both adapters.
 cat >"$tmp/use-adapter.sh" <<'EOF'
 init=$1; log=$2; scenario=$3; active=$4; target=$5

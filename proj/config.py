@@ -26,6 +26,8 @@ CONFIG_KEYS = {
     "behavior",
 }
 
+BEHAVIOR_KEYS = {"change_directory", "run_startup_hooks", "restore_login_modules"}
+
 
 @dataclass(frozen=True)
 class Config:
@@ -40,6 +42,8 @@ class Config:
     python_manager: str = "micromamba"
     change_directory: bool = True
     run_startup_hooks: bool = True
+    # Load back the modules a login had when an environment displaced them.
+    restore_login_modules: bool = True
 
 
 def _expand_path(value: str) -> Path:
@@ -93,6 +97,13 @@ def load_config() -> Config:
     if not all(isinstance(item, dict) for item in behaviors):
         raise ConfigError("behavior must be a table")
     behavior = {**behaviors[0], **behaviors[1]}
+    unknown = sorted(set(behavior) - BEHAVIOR_KEYS)
+    if unknown:
+        raise ConfigError(f"unknown behavior key(s): {', '.join(unknown)}")
+    for key in sorted(behavior):
+        # A quoted "false" must not read as true: these switches are strict.
+        if not isinstance(behavior[key], bool):
+            raise ConfigError(f"behavior.{key} must be true or false")
 
     raw_registry = _optional_string(data, "registry", source)
     if "PROJ_HOME" in os.environ or not raw_registry:
@@ -145,4 +156,5 @@ def load_config() -> Config:
         python_manager=python_manager,
         change_directory=bool(behavior.get("change_directory", True)),
         run_startup_hooks=bool(behavior.get("run_startup_hooks", True)),
+        restore_login_modules=bool(behavior.get("restore_login_modules", True)),
     )

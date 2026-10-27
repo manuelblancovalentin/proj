@@ -52,7 +52,12 @@ This command requires the shell integration. Activating an environment owned
 by someone else prints a notice: its hooks and aliases run as you.
 .TP
 .B proj deactivate
-Reverse the activation performed in the current shell. This also works when
+Reverse the activation performed in the current shell, including putting back
+any module your login had loaded that the environment displaced (switch off with
+.B restore_login_modules = false
+in the
+.B [behavior]
+table of the configuration). This also works when
 the environment was removed while active.
 .TP
 .BR "proj use " "[" name[/version] "]... [--env " name "] [--list]"

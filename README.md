@@ -366,7 +366,10 @@ deactivates exactly the Python environment level proj created, unloads the
 module, and returns you to the previous directory.
 
 Only one environment is active per shell; deactivate before activating
-another.
+another. If your login already loaded modules the environment replaces (another
+version of the same tool, say), the environment's choice wins while it is
+active, and deactivating puts your own modules back (`restore_login_modules = false`
+in the `[behavior]` table of the configuration turns this off).
 
 ### Python environments
 
@@ -762,6 +765,7 @@ module_cache = "~/.cache/proj/modulefiles"
 [behavior]
 change_directory = true              # cd to the project root on activation
 run_startup_hooks = true             # run startup hooks on activation
+restore_login_modules = true         # deactivate loads back login modules the environment displaced
 ```
 
 Unknown keys are rejected, so typos fail loudly. `proj doctor` shows the
