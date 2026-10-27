@@ -72,6 +72,17 @@ activation.
   configuration loads so a broken configuration cannot block it. The source
   repository and ref live in `PREFIX/etc/source.toml`; `PROJ_UPGRADE_BASE`
   replaces the host for tests.
+- `proj use`/`proj unuse` find a module by exact name, then `pdk-<name>`, then
+  `suite-<name>`; several matches or none is an error, never a guess. Category
+  comes from the module's `Category` tag and access from its `Group` tag
+  (`any` or no tag means everyone); access is checked before anything else
+  about a module is revealed. An entry for the same module, or the same Lmod
+  family, is replaced so an environment always loads. For the active
+  environment the CLI leaves a `_proj_reapply` snippet in
+  `PROJ_SHELL_CODE_FILE` for the adapter to evaluate: unload the project
+  module while the cached file is still the old one, regenerate it
+  (`_materialize`), load it again, and clean up like a failed activation if
+  that fails. The CLI never touches the parent shell itself.
 - The adapters never take over a prompt. They maintain `PROJ_PROMPT_SEGMENT`
   (no subprocess per prompt) and, only when the prompt does not mention it
   and `PROJ_PROMPT` is not `off`, put it in front of `PS1`/`PROMPT`. A

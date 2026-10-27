@@ -6,6 +6,18 @@ _proj_project_names() {
   (( ${#projects} )) && _describe 'project environment' projects
 }
 
+_proj_use_names() {
+  local -a names
+  names=(${(f)"$(_proj_cli _complete uses 2>/dev/null)"})
+  (( ${#names} )) && _describe 'module you can use' names
+}
+
+_proj_used_names() {
+  local -a names
+  names=(${(f)"$(_proj_cli _complete used 2>/dev/null)"})
+  (( ${#names} )) && _describe 'module this environment uses' names
+}
+
 _proj_python_environments() {
   local -a environments
   environments=(${(f)"$(_proj_cli python-env list 2>/dev/null)"})
@@ -42,6 +54,8 @@ commands=(
   'activate:Activate a project environment'
   'deactivate:Deactivate the current project'
   'remove:Delete a project environment'
+  'use:Use a library, suite, or tool in an environment'
+  'unuse:Stop using a module in an environment'
   'upgrade:Reinstall proj from its source repository'
   'current:Print the active project name'
   'status:Show active project state'
@@ -109,8 +123,24 @@ case $words[2] in
   create)
     if [[ ${words[CURRENT-1]-} == --root ]]; then
       _directories
+    elif [[ ${words[CURRENT-1]-} == --use ]]; then
+      _proj_use_names
     elif (( CURRENT >= 4 )); then
-      _values 'option' --root --shared --group-writable
+      _values 'option' --root --shared --group-writable --use
+    fi
+    ;;
+  use)
+    if [[ $PREFIX == -* ]]; then
+      _values 'option' --env --list
+    else
+      _proj_use_names
+    fi
+    ;;
+  unuse)
+    if [[ $PREFIX == -* ]]; then
+      _values 'option' --env
+    else
+      _proj_used_names
     fi
     ;;
   init)

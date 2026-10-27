@@ -16,6 +16,8 @@ CATEGORIES = ("compiler", "toolchain", "application", "project")
 # The module namespace proj uses for the modules it generates from environments.
 RESERVED = "project"
 _WHATIS_LINE = re.compile(r"^(\S+)\s+:\s?(.*)$")
+_BLOCK_HEADER = re.compile(r"^\s+/.*:$")
+_FAMILY = re.compile(r"""^family\(\s*["']([^"']+)["']\s*\)""")
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,7 @@ class ModuleEntry:
     default: str | None
     category: str  # one of CATEGORIES, another tag a modulefile chose, or ""
     description: str
+    group: str = ""  # Unix group(s) a modulefile requires, "any", or "" when untagged
 
 
 def lmod_command() -> str | None:
@@ -122,6 +125,30 @@ def catalog(exclude: Iterable[Path] = ()) -> list[ModuleEntry]:
                 default=default or None,
                 category=_tag(tags, "Category").lower(),
                 description=description,
+                group=_tag(tags, "Group"),
             )
         )
     return entries
+
+
+def families(specs: Iterable[str]) -> dict[str, str]:
+    """The Lmod family each module declares, found with `module show`.
+
+    A module that is missing, or declares no family, is left out; so does
+    everything if Lmod cannot answer, because families only refine a decision.
+    """
+    result: dict[str, str] = {}
+    for spec in dict.fromkeys(specs):
+        try:
+            text = _lmod("show", spec)
+        except ProjError:
+            continue
+        # The output is "<file>:" followed by the modulefile's commands.
+        if not any(_BLOCK_HEADER.match(line) for line in text.splitlines()):
+            continue
+        for line in text.splitlines():
+            match = _FAMILY.match(line.strip())
+            if match:
+                result[spec] = match.group(1)
+                break
+    return result

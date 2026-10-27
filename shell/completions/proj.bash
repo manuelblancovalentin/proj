@@ -21,7 +21,7 @@ _proj_complete() {
   local IFS=$'\n'
 
   if (( COMP_CWORD == 1 )); then
-    candidates=$'create\nlist\navail\nactivate\ndeactivate\nremove\nupgrade\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
+    candidates=$'create\nlist\navail\nuse\nunuse\nactivate\ndeactivate\nremove\nupgrade\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
     candidates+=$'\nset-python-env\npython-env\nmodule\nenv\ndoctor\ninit\ninstall\n--version'
   elif [[ $prev == --env || $prev == --project ]]; then
     candidates=$(_proj_cli _complete projects 2>/dev/null)
@@ -29,6 +29,8 @@ _proj_complete() {
     candidates=$'zsh\nbash'
   elif [[ $prev == --manager ]]; then
     candidates=$'micromamba\nconda\nmamba'
+  elif [[ $prev == --use ]]; then
+    candidates=$(_proj_cli _complete uses 2>/dev/null)
   elif [[ $command == create && $prev == --root ]] ||
        [[ $command == init && $prev == --rc ]]; then
     compopt -o default 2>/dev/null
@@ -42,6 +44,20 @@ _proj_complete() {
       upgrade)
         candidates=$'--check\n--yes\n--force\n--ref'
         ;;
+      use)
+        if [[ $cur == -* ]]; then
+          candidates=$'--env\n--list'
+        else
+          candidates=$(_proj_cli _complete uses 2>/dev/null)
+        fi
+        ;;
+      unuse)
+        if [[ $cur == -* ]]; then
+          candidates=--env
+        else
+          candidates=$(_proj_cli _complete used 2>/dev/null)
+        fi
+        ;;
       remove)
         if (( COMP_CWORD == 2 )); then
           candidates=$(_proj_cli _complete projects 2>/dev/null)
@@ -50,7 +66,7 @@ _proj_complete() {
         fi
         ;;
       create)
-        (( COMP_CWORD >= 3 )) && candidates=$'--root\n--shared\n--group-writable'
+        (( COMP_CWORD >= 3 )) && candidates=$'--root\n--shared\n--group-writable\n--use'
         ;;
       config)
         candidates=$'--env\nproject.description\nproject.root\nproject.shell'

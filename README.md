@@ -71,6 +71,7 @@ If you found this work useful, please consider citing it:
   - [Removing and renaming](#removing-and-renaming)
 - [Toolchains and components (Lmod modules)](#toolchains-and-components-lmod-modules)
   - [Adding modules to an environment](#adding-modules-to-an-environment)
+  - [Using a module in one word](#using-a-module-in-one-word)
   - [Making software available as a module](#making-software-available-as-a-module)
 - [Shared servers](#shared-servers)
   - [Administrator setup](#administrator-setup)
@@ -540,6 +541,57 @@ modules proj generates from environments, so an environment cannot depend on
 itself or on another environment. proj does not check that a module exists when you add it;
 a missing module makes `proj activate` fail and roll back.
 
+### Using a module in one word
+
+`proj use` is the short form of `proj module add`: name the library, suite, or
+tool, and proj finds the module, reads its category and who may use it from the
+module itself, and records it in the environment.
+
+```sh
+proj create atlas --use gf22 --use cadence    # at creation
+proj use gf22                                 # in the active environment
+proj use saed32/04152022 --env atlas          # a pinned version, another environment
+proj use                                      # what this environment uses now
+proj use --list                               # what you could use, by category
+proj unuse gf22
+```
+
+- **Names.** `gf22` finds the module `pdk-gf22`, `cadence` finds
+  `suite-cadence`, and an exact module name (`genus`, `genus/20.1`) works too.
+  If more than one of those exists, or none does, proj prints the candidates
+  and stops; it never guesses. Type the full module name to choose one.
+- **Category.** It comes from the module's `whatis("Category: ...")` tag, so you
+  never name it. A module without a valid tag is refused with the fix.
+- **Versions.** `name/version` pins that version. A bare name stores the bare
+  module name, so the module's own default decides (for example a `default`
+  symlink to the current release).
+- **Effect.** In the active environment the change is applied to your shell as
+  well as saved, the way activation would have, and remembered for next time;
+  `unuse` unloads it and forgets it. In another environment (`--env`) it takes
+  effect at the next activation. A module that cannot coexist with one the
+  environment already uses (another version of it, or another member of the
+  same Lmod family, such as one `pdk-*` library for another) replaces it, and
+  proj says so.
+- **Access.** A module may carry `whatis("Group: <unix group>")` (several groups
+  separated by commas or spaces, or `any`; no tag means everyone). If you are
+  not in one of them, `proj use gf22` stops with *gf22 needs the Unix group
+  gf22 (you are not in it). Ask an administrator.* and `proj use --list` shows
+  only what you can use, plus a short section of modules that exist but need a
+  group you lack.
+- **Completion.** `proj use <Tab>` offers the short names you can use,
+  and `proj unuse <Tab>` those the environment uses.
+
+Modules meant for this should be named `pdk-<name>` (libraries) or
+`suite-<name>` (tool suites), and carry the tags:
+
+```lua
+whatis("Category: project")    -- compiler, toolchain, application, or project
+whatis("Group: gf22")          -- who may use it; "any", or omit, for everyone
+family("pdk")                  -- libraries of one family replace each other
+```
+
+`proj module add/remove` still works unchanged, with an explicit category.
+
 ### Making software available as a module
 
 If a tool is not in `module avail`, install it anywhere and describe it with a
@@ -783,7 +835,9 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 
 | Command | Purpose |
 |---|---|
-| `proj create <name> [--root DIR] [--shared [--group-writable]]` | Register a project |
+| `proj create <name> [--root DIR] [--shared [--group-writable]] [--use NAME]...` | Register a project |
+| `proj use [name[/version]]... [--env NAME] [--list]` | Use a library, suite, or tool; with no name, show what is used |
+| `proj unuse <name>... [--env NAME]` | Stop using a module |
 | `proj list` | List environments with scope and owner |
 | `proj avail [category\|name] [--json]` | List the modules Lmod can load, by category |
 | `proj activate <name>` / `proj deactivate` | Enter or leave an environment |

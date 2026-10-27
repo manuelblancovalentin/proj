@@ -713,6 +713,181 @@ if [ -z "$(PATH=/usr/bin:/bin command -v lmod)" ]; then
 fi
 pass "proj avail groups modules by category and proj info shows an overview without an environment"
 
+# proj use / unuse against a fake Lmod that carries Category, Group, and family tags.
+fake_use_lmod="$tmp/lmod-use"
+cat >"$fake_use_lmod" <<'EOF'
+#!/bin/sh
+shift
+table() {
+  cat <<DATA
+pdk-gf22|1.0|yes|project|nogroup-xyz|pdk
+pdk-saed32|04152022|no|project|any|pdk
+pdk-saed32|20200101|yes|project|any|pdk
+pdk-open|1.0|yes|project|$USE_GROUP|pdk
+suite-cadence|2026.1|yes|application|any|suite_cadence
+genus|20.1|no|application||genus
+genus|21.1|yes|application||genus
+gcc|13.3.0|yes|compiler||gcc
+node|24.21.0|yes|||node
+foo|1.0|yes|toolchain||foo
+pdk-foo|1.0|yes|project|any|pdk
+odd|1|yes|library||odd
+DATA
+}
+case "$1 $2" in
+  '--terse avail')
+    { echo /mods:; table | while IFS='|' read -r n v d c g f; do echo "$n/$v"; done; } >&2 ;;
+  '--terse --default')
+    { echo /mods:; table | while IFS='|' read -r n v d c g f; do [ "$d" = yes ] && echo "$n/$v"; done; } >&2 ;;
+esac
+case "$1" in
+  whatis)
+    shift
+    for m; do
+      table | while IFS='|' read -r n v d c g f; do
+        if [ "$n" = "$m" ] && [ "$d" = yes ]; then
+          [ -n "$c" ] && echo "$n/$v : Category: $c"
+          [ -n "$g" ] && echo "$n/$v : Group: $g"
+          [ -z "$c" ] && echo "$n/$v : Name: $n"
+        fi
+      done
+    done >&2 ;;
+  show)
+    shift
+    for m; do
+      family=$(table | awk -F'|' -v n="${m%%/*}" '$1 == n { print $6; exit }')
+      printf '%s\n' '----' "   /mods/$m.lua:" '----' >&2
+      [ -n "$family" ] && echo "family(\"$family\")" >&2
+    done ;;
+esac
+exit 0
+EOF
+chmod +x "$fake_use_lmod"
+use_env() {
+  LMOD_CMD="$fake_use_lmod" USE_GROUP="$(id -gn)" PROJ_COLOR=never \
+    PROJ_HOME="$tmp/use-home" PROJ_CACHE_HOME="$tmp/use-cache" MODULEPATH=/mods "$@"
+}
+use_proj() { use_env "$root/bin/proj" "$@"; }
+modules_of() { use_proj config --env "$1" "modules.$2" 2>/dev/null || echo '[]'; }
+mkdir -p "$tmp/work/useenv"
+use_proj create useenv --root "$tmp/work/useenv" >/dev/null || fail "proj use fixture"
+
+use_list=$(use_proj use --list)
+for expected in 'saed32  *pdk-saed32  *04152022  *20200101\*' 'cadence  *suite-cadence' \
+  'genus  *genus  *20.1  *21.1\*' 'open  *pdk-open' 'gcc  *gcc'; do
+  printf '%s\n' "$use_list" | grep -q "$expected" || fail "proj use --list lacks '$expected'"
+done
+[ "$(printf '%s\n' "$use_list" | grep -c 'gf22')" = 1 ] &&
+  printf '%s\n' "$use_list" | grep 'gf22' | grep -q 'nogroup-xyz' ||
+  fail "a module needing another group must appear only in the 'needs group' section"
+printf '%s\n' "$use_list" | grep -q 'Also exists, needs a Unix group' || fail "needs-group heading"
+printf '%s\n' "$use_list" | grep -q '^node ' && fail "an untagged module was offered"
+printf '%s\n' "$use_list" | grep -q 'without a Category tag' || fail "untagged note"
+use_proj use --list compiler | grep -q '^gcc ' || fail "proj use --list category filter"
+
+if use_proj use gf22 --env useenv >/dev/null 2>"$tmp/use-error"; then fail "use accepted a restricted module"; fi
+[ "$(cat "$tmp/use-error")" = \
+  'proj: gf22 needs the Unix group nogroup-xyz (you are not in it). Ask an administrator.' ] ||
+  fail "access refusal text: $(cat "$tmp/use-error")"
+[ "$(modules_of useenv project)" = '[]' ] || fail "a refused use changed the environment"
+use_proj use saed32/04152022 --env useenv >/dev/null || fail "use a pinned version"
+[ "$(modules_of useenv project)" = '["pdk-saed32/04152022"]' ] || fail "category inference and pin"
+for refused in 'saed32/1999:has no version' foo:'matches several modules' zzz:'no module matches' \
+  node:'no Category tag' odd:"category 'library'"; do
+  if use_proj use "${refused%%:*}" --env useenv >/dev/null 2>"$tmp/use-error"; then
+    fail "use accepted ${refused%%:*}"
+  fi
+  grep -q "${refused#*:}" "$tmp/use-error" || fail "message for ${refused%%:*}: $(cat "$tmp/use-error")"
+done
+use_proj use pdk-foo --env useenv 2>&1 | grep -q "same Lmod family 'pdk'" || fail "family replacement message"
+[ "$(modules_of useenv project)" = '["pdk-foo"]' ] || fail "family replacement"
+use_proj use open --env useenv >/dev/null || fail "use a module open to the user's group"
+[ "$(modules_of useenv project)" = '["pdk-open"]' ] || fail "group-gated module in the user's group"
+use_proj use genus/21.1 cadence --env useenv >/dev/null || fail "use several names"
+use_proj use genus/20.1 --env useenv >/dev/null
+[ "$(modules_of useenv application)" = '["suite-cadence", "genus/20.1"]' ] || fail "version swap"
+use_proj use genus --env useenv >/dev/null
+[ "$(modules_of useenv application)" = '["suite-cadence", "genus"]' ] || fail "a bare name drops the pin"
+use_proj use cadence --env useenv | grep -q 'already uses suite-cadence' || fail "repeated use"
+use_proj use --env useenv | grep -q '^cadence  *suite-cadence  *application' || fail "proj use lists the environment"
+use_proj use --env useenv | grep -q '^open  *pdk-open  *project' || fail "proj use lists projects"
+use_proj use --env useenv | grep -q 'takes effect' && fail "listing must not claim a change"
+use_proj use gcc --env useenv | grep -q 'takes effect the next time useenv is activated' || fail "inactive environment note"
+if use_proj unuse genus/20.1 --env useenv >/dev/null 2>&1; then fail "unuse matched the wrong pin"; fi
+use_proj unuse cadence gcc --env useenv >/dev/null || fail "unuse"
+[ "$(modules_of useenv application)" = '["genus"]' ] && [ "$(modules_of useenv compiler)" = '[]' ] ||
+  fail "unuse result"
+if use_proj unuse nothing-here --env useenv >/dev/null 2>"$tmp/use-error"; then fail "unuse of an unused module"; fi
+grep -q 'does not use' "$tmp/use-error" || fail "unuse message"
+
+use_proj create fresh --root "$tmp/work/useenv" --use saed32/20200101 --use cadence >/dev/null ||
+  fail "create --use"
+[ "$(modules_of fresh project)" = '["pdk-saed32/20200101"]' ] &&
+  [ "$(modules_of fresh application)" = '["suite-cadence"]' ] || fail "create --use contents"
+if use_proj create broken --root "$tmp/work/useenv" --use cadence --use gf22 >/dev/null 2>&1; then
+  fail "create --use accepted a restricted module"
+fi
+[ ! -e "$tmp/use-home/envs/broken" ] || fail "a refused create --use left an environment behind"
+
+use_complete=$(use_proj _complete uses)
+for expected in saed32 cadence genus gcc open; do
+  printf '%s\n' "$use_complete" | grep -qx "$expected" || fail "completion lacks $expected"
+done
+for unexpected in gf22 pdk-saed32 node odd; do
+  printf '%s\n' "$use_complete" | grep -qx "$unexpected" && fail "completion offers $unexpected"
+done
+[ "$(PROJ_ACTIVE=useenv use_proj _complete used)" = 'open
+genus' ] || fail "completion of used modules"
+
+# The active environment is reloaded in the shell, in both adapters.
+cat >"$tmp/use-adapter.sh" <<'EOF'
+init=$1; log=$2; scenario=$3; active=$4; target=$5
+module() {
+  printf 'module %s\n' "$*" >>"$log"
+  [ "$1" = load ] && [ "$scenario" = fail ] && return 1
+  return 0
+}
+. "$init"
+export PROJ_ACTIVE=$active
+case $scenario in
+  ok|fail) proj use "$6" ;;
+  other) proj use "$6" --env "$target" ;;
+esac
+exit $?
+EOF
+for use_shell in bash zsh; do
+  use_flags=--norc; [ "$use_shell" = zsh ] && use_flags=-f
+  for scenario in ok fail other; do
+    use_proj create "act_${scenario}_$use_shell" --root "$tmp/work/useenv" >/dev/null
+  done
+  use_proj create "tgt_$use_shell" --root "$tmp/work/useenv" >/dev/null
+  run_adapter() { # run_adapter <scenario> <active> <target> <module>
+    : >"$tmp/use-$use_shell.log"
+    use_env "$use_shell" "$use_flags" "$tmp/use-adapter.sh" "$root/shell/init.$use_shell" \
+      "$tmp/use-$use_shell.log" "$1" "$2" "$3" "$4"
+  }
+  run_adapter ok "act_ok_$use_shell" "" genus/20.1 >/dev/null 2>&1 || fail "$use_shell: use in the active environment"
+  [ "$(cat "$tmp/use-$use_shell.log")" = "module unload project/act_ok_$use_shell
+module load project/act_ok_$use_shell" ] || fail "$use_shell: reload sequence: $(cat "$tmp/use-$use_shell.log")"
+  grep -q 'depends_on("genus/20.1")' "$tmp/use-cache/modulefiles/project/act_ok_$use_shell.lua" ||
+    fail "$use_shell: the reloaded module lacks the new dependency"
+  if run_adapter fail "act_fail_$use_shell" "" gcc >"$tmp/use-out" 2>&1; then
+    fail "$use_shell: a failed reload reported success"
+  fi
+  grep -q 'Could not reload' "$tmp/use-out" || fail "$use_shell: failed reload message"
+  grep -q "^module unuse $tmp/use-cache/modulefiles$" "$tmp/use-$use_shell.log" ||
+    fail "$use_shell: a failed reload did not clean up the shell"
+  [ "$(modules_of "act_fail_$use_shell" compiler)" = '["gcc"]' ] || fail "$use_shell: the change must stay saved"
+  run_adapter other "act_other_$use_shell" "tgt_$use_shell" genus/20.1 >/dev/null 2>&1 ||
+    fail "$use_shell: use in another environment"
+  [ ! -s "$tmp/use-$use_shell.log" ] || fail "$use_shell: another environment must not touch the shell"
+  [ "$(modules_of "tgt_$use_shell" application)" = '["genus/20.1"]' ] || fail "$use_shell: other environment change"
+done
+if use_env env PROJ_ACTIVE=useenv "$root/bin/proj" use genus/21.1 2>&1 | grep -q 'Reactivate to apply it here'; then :; else
+  fail "use through the bare executable explains how to apply the change"
+fi
+pass "proj use and unuse resolve names, check access, replace conflicts, and reload the active environment"
+
 # The [proj:<name>] prompt segment, in both adapters.
 cat >"$tmp/prompt-test.bash" <<'EOF'
 . "$1/shell/init.bash"

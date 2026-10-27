@@ -1,4 +1,4 @@
-.TH PROJ 1 "October 2026" "proj 0.7.0" "User Commands"
+.TH PROJ 1 "October 2026" "proj 0.8.0" "User Commands"
 .SH NAME
 proj \- manage project development environments with Lmod
 .SH SYNOPSIS
@@ -30,7 +30,7 @@ proj module add compiler gcc/14
 .fi
 .SH COMMANDS
 .TP
-.BI "proj create " name " [--root " directory "] [--shared [--group-writable]]"
+.BI "proj create " name " [--root " directory "] [--shared [--group-writable]] [--use " name "]..."
 Register a project. The root defaults to the current directory. Creates a
 valid starter document in the private registry,
 prints its location, and leaves optional fields commented.
@@ -54,6 +54,39 @@ by someone else prints a notice: its hooks and aliases run as you.
 .B proj deactivate
 Reverse the activation performed in the current shell. This also works when
 the environment was removed while active.
+.TP
+.BR "proj use " "[" name[/version] "]... [--env " name "] [--list]"
+Use a library, suite, or tool in an environment (the active one, or
+.IR --env )
+without naming a category or an exact module. A name is tried as the exact
+module name, then as
+.BI pdk- name
+and
+.BI suite- name ;
+more than one match, or none, lists the candidates and fails. The category
+comes from the module's
+.B whatis("Category: ...")
+tag. A bare name stores the bare module name, so the module's default version
+decides;
+.I name/version
+pins it. In the active environment the module is also loaded into the current
+shell and remembered; in another environment it applies at the next
+activation. A module that cannot coexist with one already used (another
+version, or the same Lmod family) replaces it. A module may carry
+.B whatis("Group: ...")
+(a Unix group, several, or
+.BR any );
+without membership, proj refuses and tells you to ask an administrator. With no
+names it shows what the environment uses;
+.B --list
+shows what you could use by category, plus the modules that need a group you
+lack. With the shell integration
+.B use
+applies to the current shell immediately.
+.TP
+.BR "proj unuse " name... " [--env " name ]
+Stop using modules: unload them from the current shell when the environment is
+active, and forget them.
 .TP
 .BR "proj remove " name " [--yes] [--delete-files | --keep-files]"
 Delete an environment's

@@ -8,6 +8,24 @@
 
 `proj init`
 
+- Register the current directory as a project that uses a library and a tool suite:
+
+`proj create {{project_name}} --use {{gf22}} --use {{cadence}}`
+
+- Use a library, suite, or tool in the active environment, then see what it uses:
+
+`proj use {{name[/version]}}`
+
+`proj use`
+
+- List what you can use, by category:
+
+`proj use --list`
+
+- Stop using a module:
+
+`proj unuse {{name}}`
+
 - Register the current directory as a project:
 
 `proj create {{project_name}}`

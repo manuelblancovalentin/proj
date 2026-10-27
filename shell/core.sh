@@ -231,6 +231,38 @@ _proj_deactivate() {
   _proj_log_ok "Project '$project_name' deactivated ✨"
 }
 
+# Reload the active environment after `proj use`/`proj unuse` changed its module
+# list. The cached modulefile still has the old dependency list, so unloading
+# it first makes Lmod unload exactly what it loaded; then the file is
+# regenerated and loaded again. A failed reload leaves the shell clean, as a
+# failed activation does; the change itself is already saved.
+_proj_reapply() {
+  [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
+  local project_name=$1 module_name=$2 module_path=$3
+  local mamba_env=${4-} python_manager=${5:-micromamba}
+
+  if ! _proj_is_function module; then
+    _proj_log_error 'Lmod is unavailable; run `proj doctor`'
+    return 2
+  fi
+  if [ "${PROJ_ACTIVE-}" != "$project_name" ]; then
+    _proj_log_error 'Active project state has drifted; run `proj status`'
+    return 2
+  fi
+  if ! module unload "$module_name"; then
+    _proj_log_error 'Lmod project unload failed'
+    return 2
+  fi
+  if ! _proj_cli _materialize "$project_name" || ! module load "$module_name"; then
+    _proj_log_error \
+      "Could not reload '$project_name'; the change is saved. Fix the problem, then run: proj activate $project_name"
+    _proj_rollback_activation \
+      "$project_name" "$module_name" "$module_path" "$mamba_env" "$python_manager"
+    return 2
+  fi
+  _proj_log_ok "Project '$project_name' updated in this shell 🔄"
+}
+
 _proj_no_active() {
   _proj_log_info 'No project is active'
 }
@@ -252,6 +284,28 @@ proj() {
       else
         _proj_cli "$@"
       fi
+      ;;
+    use|unuse)
+      # The CLI edits the metadata and, for the active environment, leaves a
+      # snippet in this file for the shell to evaluate.
+      local code_file use_status
+      if code_file=$(mktemp "${TMPDIR:-/tmp}/proj-code.XXXXXX" 2>/dev/null); then
+        export PROJ_SHELL_CODE_FILE=$code_file
+        _proj_cli "$@"
+        use_status=$?
+        unset PROJ_SHELL_CODE_FILE
+        code=
+        [ -s "$code_file" ] && code=$(cat "$code_file")
+        rm -f -- "$code_file"
+      else
+        _proj_cli "$@"
+        use_status=$?
+      fi
+      if [ "$use_status" -eq 0 ] && [ -n "$code" ]; then
+        eval "$code"
+        return
+      fi
+      return "$use_status"
       ;;
     '') _proj_cli --help ;;
     *) _proj_cli "$@" ;;

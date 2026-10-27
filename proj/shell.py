@@ -45,6 +45,18 @@ def orphan_deactivation_code(config: Config, name: str) -> str:
     return "_proj_deactivate " + " ".join(_q(value) for value in values)
 
 
+def reapply_code(config: Config, project: Project) -> str:
+    """Reload the active environment after its module list changed."""
+    values = (
+        project.name,
+        project.module_name,
+        config.module_cache,
+        project.python_environment or "",
+        manager_for(config, project) if project.python_environment else "",
+    )
+    return "_proj_reapply " + " ".join(_q(value) for value in values)
+
+
 def deactivation_code(config: Config, project: Project) -> str:
     values = (
         project.name,

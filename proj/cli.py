@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, lmod, menu_runtime, python_envs, upgrade
+from . import access, lmod, menu_runtime, python_envs, upgrade, uses
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -24,6 +24,7 @@ from .editor import (
     parse_value,
     set_dotted,
     update_document,
+    write_document,
 )
 from .errors import ProjError
 from .metadata import (
@@ -36,7 +37,12 @@ from .metadata import (
 )
 from .modulefile import materialize, render
 from .render import Output
-from .shell import activation_code, deactivation_code, orphan_deactivation_code
+from .shell import (
+    activation_code,
+    deactivation_code,
+    orphan_deactivation_code,
+    reapply_code,
+)
 
 
 def _table(headers, rows, title=None, flex=None, styles=None) -> None:
@@ -115,6 +121,7 @@ def _print_catalog(config: Config, query: str | None, as_json: bool) -> int:
                         "default": entry.default,
                         "category": entry.category or None,
                         "description": entry.description or None,
+                        "group": entry.group or None,
                     }
                     for entry in entries
                 ],
@@ -237,6 +244,29 @@ def cmd_complete(config: Config, args: argparse.Namespace) -> int:
     if args.entity == "projects":
         for name in sorted(discover(config)):
             print(name)
+    elif args.entity == "uses":
+        # What `proj use <Tab>` offers: the words this person can resolve.
+        try:
+            entries = lmod.catalog(exclude=(config.module_cache,))
+        except ProjError:
+            return 0
+        groups = uses.user_groups()
+        shown = uses.display_names(entries)
+        for entry in sorted(entries, key=lambda item: shown[item.name]):
+            if entry.category in lmod.CATEGORIES and uses.allowed(entry, groups):
+                print(shown[entry.name])
+    elif args.entity == "used":
+        # What `proj unuse <Tab>` offers: the active environment's own modules.
+        name = args.project or os.environ.get("PROJ_ACTIVE")
+        if name:
+            try:
+                project = resolve(config, name)
+            except ProjError:
+                return 0
+            for category in MODULE_CATEGORIES:
+                for spec in project.modules.get(category, ()):
+                    module = spec.partition("/")[0]
+                    print(uses.short_name(module))
     return 0
 
 
@@ -263,6 +293,8 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         raise ProjError(
             f"environment {args.name!r} already exists at {existing.metadata_path}"
         )
+    # Resolve every --use first, so a refusal creates nothing.
+    initial = _plan_uses(config, args.use, {}) if args.use else None
     mode = None
     if args.shared:
         metadata_path = access.shared_registry(config) / args.name / "project.toml"
@@ -274,10 +306,19 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
     else:
         metadata_path = config.registry / args.name / "project.toml"
     create_document(metadata_path, args.name, root, mode, config.python_manager)
+    if initial:
+        document = load_document(metadata_path)
+        for category in MODULE_CATEGORIES:
+            if initial.modules[category]:
+                set_dotted(document, f"modules.{category}", initial.modules[category])
+        write_document(metadata_path, document)
     # Validate the generated document before reporting success.
     load_project(metadata_path)
     print(f"Environment {args.name!r} successfully created.")
     print(f"Metadata and configuration present at {metadata_path}")
+    if initial:
+        used = [spec for category in MODULE_CATEGORIES for spec in initial.modules[category]]
+        print(f"Uses: {', '.join(used)}")
     print(f"Activate it with: proj activate {args.name}")
     return 0
 
@@ -694,6 +735,158 @@ def cmd_configmenu(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _modules_of(document: dict) -> dict[str, list[str]]:
+    modules = document.get("modules", {})
+    return {category: list(modules.get(category, [])) for category in MODULE_CATEGORIES}
+
+
+def _plan_uses(config: Config, texts, current) -> uses.Plan:
+    entries = lmod.catalog(exclude=(config.module_cache,))
+    groups = uses.user_groups()
+    resolved = [uses.resolve(text, entries, groups) for text in texts]
+    specs = [item.spec for item in resolved] + [
+        spec for specs in current.values() for spec in specs
+    ]
+    return uses.plan_use(current, resolved, lmod.families(specs))
+
+
+def _finish_plan(config: Config, project: Project, plan: uses.Plan, current) -> int:
+    for spec in plan.unchanged:
+        print(f"{project.name} already uses {spec}.")
+    if not plan.changed:
+        return 0
+
+    def mutate(document) -> None:
+        for category in MODULE_CATEGORIES:
+            if plan.modules[category] != current[category]:
+                set_dotted(document, f"modules.{category}", plan.modules[category])
+
+    update_document(project, mutate)
+    for item in plan.added:
+        print(f"Added {item.spec} ({item.category}) to {project.name}.")
+    for old, new, why in plan.replaced:
+        print(f"Replaced {old} with {new} ({why}).")
+    for spec in plan.removed:
+        print(f"Removed {spec} from {project.name}.")
+    if os.environ.get("PROJ_ACTIVE") != project.name:
+        print(f"It takes effect the next time {project.name} is activated.")
+        return 0
+    code_file = os.environ.get("PROJ_SHELL_CODE_FILE")
+    if code_file:
+        # The shell adapter evaluates this to reload the environment in place.
+        Path(code_file).write_text(reapply_code(config, project) + "\n")
+    else:
+        print(f"Reactivate to apply it here: proj deactivate && proj activate {project.name}")
+    return 0
+
+
+def _print_current_uses(project: Project, current) -> int:
+    rows = [
+        (uses.short_name(spec.partition("/")[0]), spec, category)
+        for category in MODULE_CATEGORIES
+        for spec in current[category]
+    ]
+    if not rows:
+        print(f"{project.name} uses no modules yet. Add one with: proj use <name>  (see: proj use --list)")
+        return 0
+    _table(
+        ("NAME", "MODULE", "CATEGORY"),
+        rows,
+        title=f"{project.name} uses {len(rows)} module{'s' * (len(rows) != 1)}",
+    )
+    return 0
+
+
+def _print_use_list(config: Config, query: str | None) -> int:
+    out = Output()
+    entries = lmod.catalog(exclude=(config.module_cache,))
+    groups = uses.user_groups()
+    shown = uses.display_names(entries)
+    needle = (query or "").lower()
+
+    def wanted(entry) -> bool:
+        return (
+            not needle
+            or needle == entry.category
+            or needle in entry.name.lower()
+            or needle in shown[entry.name].lower()
+        )
+
+    placed = [entry for entry in entries if entry.category in lmod.CATEGORIES and wanted(entry)]
+    usable = [entry for entry in placed if uses.allowed(entry, groups)]
+    locked = [entry for entry in placed if not uses.allowed(entry, groups)]
+    untagged = [entry for entry in entries if entry.category not in lmod.CATEGORIES]
+    if not placed:
+        print(f"No modules match {query!r}." if query else "Lmod lists no modules.")
+        return 1
+    print(out.heading("You can use") + out.paint(f"  {len(usable)} of {len(placed)}", "dim"))
+    for category in lmod.CATEGORIES:
+        members = [entry for entry in usable if entry.category == category]
+        if not members:
+            continue
+        rows = [
+            (
+                shown[entry.name],
+                entry.name,
+                "  ".join(v + ("*" if v == entry.default else "") for v in entry.versions),
+            )
+            for entry in members
+        ]
+        print()
+        out.print_table(
+            ("NAME", "MODULE", "VERSIONS"),
+            rows,
+            title=f"{CATEGORY_TITLES[category]} ({len(members)})",
+            flex=2,
+            styles=[("bold",), (), ("dim",)],
+        )
+    if locked:
+        rows = [
+            (shown[entry.name], entry.name, ", ".join(uses.required_groups(entry)))
+            for entry in locked
+        ]
+        print()
+        out.print_table(
+            ("NAME", "MODULE", "NEEDS GROUP"),
+            rows,
+            title="Also exists, needs a Unix group you are not in",
+            flex=2,
+            styles=[("bold",), (), ("dim",)],
+        )
+    print()
+    print(out.note("proj use <name>[/version]: a bare name follows the module's default version (*); name/version pins one."))
+    if untagged:
+        print(
+            out.note(
+                f"{len(untagged)} module{'s' * (len(untagged) != 1)} without a Category tag "
+                "cannot be used this way; add one with: proj module add <category> <module>."
+            )
+        )
+    return 0
+
+
+def cmd_use(config: Config, args: argparse.Namespace) -> int:
+    if args.list:
+        return _print_use_list(config, args.names[0] if args.names else None)
+    project = _selected_project(config, args.project)
+    current = _modules_of(load_document(project.metadata_path))
+    if not args.names:
+        return _print_current_uses(project, current)
+    return _finish_plan(config, project, _plan_uses(config, args.names, current), current)
+
+
+def cmd_unuse(config: Config, args: argparse.Namespace) -> int:
+    project = _selected_project(config, args.project)
+    current = _modules_of(load_document(project.metadata_path))
+    return _finish_plan(config, project, uses.plan_unuse(current, args.names), current)
+
+
+def cmd_materialize(config: Config, args: argparse.Namespace) -> int:
+    """Regenerate an environment's module; used by the shell when it reloads one."""
+    materialize(config, resolve(config, args.project))
+    return 0
+
+
 def cmd_hook(config: Config, args: argparse.Namespace) -> int:
     try:
         project = resolve(config, args.project)
@@ -834,6 +1027,13 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("name")
     create.add_argument("--root")
     create.add_argument(
+        "--use",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="use a module from the start (repeatable); see proj use --list",
+    )
+    create.add_argument(
         "--shared", action="store_true", help="create in the shared group registry"
     )
     create.add_argument(
@@ -898,6 +1098,17 @@ def build_parser() -> argparse.ArgumentParser:
     upgrade_parser.add_argument(
         "--force", action="store_true", help="reinstall the same version, or downgrade"
     )
+    use = sub.add_parser(
+        "use", help="use a library, suite, or tool (a module) in an environment"
+    )
+    use.add_argument("names", nargs="*", metavar="name[/version]")
+    use.add_argument("--env", "--project", dest="project", metavar="NAME")
+    use.add_argument(
+        "--list", action="store_true", help="list what you could use, by category"
+    )
+    unuse = sub.add_parser("unuse", help="stop using a module in an environment")
+    unuse.add_argument("names", nargs="+", metavar="name[/version]")
+    unuse.add_argument("--env", "--project", dest="project", metavar="NAME")
     remove = sub.add_parser("remove", help="delete a project environment")
     remove.add_argument("project", metavar="name")
     remove.add_argument(
@@ -924,7 +1135,10 @@ def build_parser() -> argparse.ArgumentParser:
     hook.add_argument("phase", choices=("startup", "shutdown"))
     hook.add_argument("project")
     complete = sub.add_parser("_complete", help=argparse.SUPPRESS)
-    complete.add_argument("entity", choices=("projects",))
+    complete.add_argument("entity", choices=("projects", "uses", "used"))
+    complete.add_argument("--env", dest="project", metavar="NAME")
+    materialize_parser = sub.add_parser("_materialize", help=argparse.SUPPRESS)
+    materialize_parser.add_argument("project")
     info_code = sub.add_parser("_info-code", help=argparse.SUPPRESS)
     info_code.add_argument(
         "--env", "--project", dest="project", metavar="NAME"
@@ -946,6 +1160,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_list(config, args)
         if args.command == "avail":
             return cmd_avail(config, args)
+        if args.command == "use":
+            return cmd_use(config, args)
+        if args.command == "unuse":
+            return cmd_unuse(config, args)
+        if args.command == "_materialize":
+            return cmd_materialize(config, args)
         if args.command == "_complete":
             return cmd_complete(config, args)
         if args.command == "info":
