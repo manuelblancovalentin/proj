@@ -40,10 +40,30 @@ unless
 .B --group-writable
 is also given. Members cannot remove environments they do not own.
 .TP
-.B proj list
+.BR "proj list " "[--json] [--scope all|shared|private] [--under " dir "]..."
 List registered project environments with their scope and owner. A private
 environment shadows a shared one with the same name. Invalid documents are
 reported and skipped.
+.B --json
+prints one read-only JSON document (schema number, then per environment its
+name, scope, project folder, bundles, modules with pinned versions, library
+bundles kept apart, and last-change time) for other programs; protected
+libraries are recognised by the
+.B library_prefixes
+and
+.B library_names
+configuration keys and never listed with a version.
+.B --scope shared
+leaves out your private registry, and each
+.B --under
+keeps only environments whose project folder is inside that directory.
+.TP
+.B proj catalog
+Print, as JSON, what a person may add to a login: the modules with their
+versions and the Unix groups that gate them (and whether the caller is in
+one), the curated suites and bundles with the names of the modules each
+contains, and how many library modules exist (never which). See
+.IR docs/machine-readable.md .
 .TP
 .BI "proj activate " name
 Load the generated project Lmod module, activate the configured Python
@@ -264,8 +284,10 @@ Site configuration written by the installer:
 .BR registry ,
 .BR shared_registry ,
 .BR group ,
+.BR python_manager ,
+.BR library_prefixes ,
 and
-.BR python_manager .
+.BR library_names .
 .TP
 .I ~/.config/proj/config.toml
 Optional user configuration; overrides site keys.

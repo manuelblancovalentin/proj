@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -13,7 +14,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, lmod, menu_runtime, python_envs, upgrade, uses
+from . import access, export, lmod, menu_runtime, python_envs, upgrade, uses
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -65,18 +66,40 @@ def _environment_rows(config: Config, projects) -> list[tuple[str, ...]]:
 NO_ENVIRONMENTS = "No environments yet. In a project directory, run: proj create <name>"
 
 
-def cmd_list(config: Config, _args: argparse.Namespace) -> int:
-    found = scan(config)
-    if found.projects:
+def cmd_list(config: Config, args: argparse.Namespace) -> int:
+    if args.json:
+        export.check_registries(config, args.scope)
+    if args.scope == "shared":
+        # The private registry is not listed, so it must not shadow a shared
+        # environment of the same name (nor make a service depend on a home).
+        config = dataclasses.replace(
+            config, project_roots=tuple(r for r in config.project_roots if r != config.registry)
+        )
+    found = scan(config, strict=args.json)
+    for _path, problem in found.problems:
+        print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
+    if args.json:
+        document = export.environments_snapshot(
+            config, found.projects.values(), len(found.problems), args.scope, args.under
+        )
+        print(json.dumps(document, indent=2))
+        return 0
+    chosen = export.select_projects(config, found.projects.values(), args.scope, args.under)
+    if chosen:
         _table(
             ("NAME", "SCOPE", "OWNER", "DESCRIPTION", "ROOT"),
-            _environment_rows(config, found.projects.values()),
+            _environment_rows(config, chosen),
             flex=4,
         )
     else:
         print(NO_ENVIRONMENTS)
-    for _path, problem in found.problems:
-        print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
+    return 0
+
+
+def cmd_catalog(config: Config, _args: argparse.Namespace) -> int:
+    entries = lmod.catalog(exclude=(config.module_cache,))
+    document = export.catalog_document(config, entries, uses.user_groups(), lmod.members)
+    print(json.dumps(document, indent=2))
     return 0
 
 
@@ -999,7 +1022,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="proj")
     parser.add_argument("--version", action="version", version=f"proj {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("list", help="list registered projects")
+    list_parser = sub.add_parser("list", help="list registered projects")
+    list_parser.add_argument(
+        "--json", action="store_true", help="print one JSON document (see docs/machine-readable.md)"
+    )
+    list_parser.add_argument(
+        "--scope",
+        choices=("all", "shared", "private"),
+        default="all",
+        help="only the shared registry (and extra roots), or only your private one",
+    )
+    list_parser.add_argument(
+        "--under",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="only environments whose project folder is inside DIR (repeatable)",
+    )
+    sub.add_parser(
+        "catalog",
+        help="print, as JSON, the modules, suites and bundles this person may add to a login",
+    )
     avail = sub.add_parser(
         "avail", help="list the modules Lmod can load, by category"
     )
@@ -1160,6 +1203,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_list(config, args)
         if args.command == "avail":
             return cmd_avail(config, args)
+        if args.command == "catalog":
+            return cmd_catalog(config, args)
         if args.command == "use":
             return cmd_use(config, args)
         if args.command == "unuse":
@@ -1222,6 +1267,9 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except PermissionError as exc:
         print(f"proj: permission denied: {exc.filename or exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"proj: {exc.strerror or exc}" + (f": {exc.filename}" if exc.filename else ""), file=sys.stderr)
         return 2
     return 0
 

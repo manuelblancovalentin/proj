@@ -732,6 +732,8 @@ node|24.21.0|yes|||node
 foo|1.0|yes|toolchain||foo
 pdk-foo|1.0|yes|project|any|pdk
 odd|1|yes|library||odd
+site-defaults|2|yes|project|any|
+gated|1|yes|application|nogroup-xyz|gated
 DATA
 }
 case "$1 $2" in
@@ -758,6 +760,9 @@ case "$1" in
       family=$(table | awk -F'|' -v n="${m%%/*}" '$1 == n { print $6; exit }')
       printf '%s\n' '----' "   /mods/$m.lua:" '----' >&2
       [ -n "$family" ] && echo "family(\"$family\")" >&2
+      case ${m%%/*} in
+        suite-flowkit) echo 'depends_on("simtool/21.1","pdk-open")' >&2 ;;
+      esac
     done ;;
 esac
 exit 0
@@ -838,6 +843,116 @@ for unexpected in alpha pdk-beta node odd; do
 done
 [ "$(PROJ_ACTIVE=useenv use_proj _complete used)" = 'open
 simtool' ] || fail "completion of used modules"
+
+# proj catalog: what kona init may offer, as JSON, without libraries.
+catalog=$(use_proj catalog) || fail "proj catalog"
+printf '%s' "$catalog" | /usr/bin/python3 -I -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["schema"] == 1 and set(d) == {"schema", "proj_version", "generated", "modules", "suites", "libraries_omitted"}, sorted(d)
+tools = {m["name"]: m for m in d["modules"]}
+assert {"simtool", "gcc", "node", "gated"} <= set(tools), sorted(tools)
+assert tools["simtool"]["versions"] == ["20.1", "21.1"] and tools["simtool"]["default"] == "21.1"
+assert tools["gated"]["groups"] == ["nogroup-xyz"] and tools["gated"]["allowed"] is False
+assert tools["simtool"]["allowed"] is True and tools["node"]["category"] is None
+assert not any(name.startswith(("pdk-", "suite-")) for name in tools), sorted(tools)
+sets = {s["name"]: s for s in d["suites"]}
+assert sets["flowkit"]["kind"] == "suite" and sets["flowkit"]["module"] == "suite-flowkit"
+assert sets["flowkit"]["contains"] == ["simtool"] and sets["flowkit"]["withheld"] == 1
+assert sets["site-defaults"]["kind"] == "bundle" and sets["site-defaults"]["contains"] == []
+assert d["libraries_omitted"] == 4, d["libraries_omitted"]
+' || fail "proj catalog content"
+printf '%s' "$catalog" | grep -q 'pdk-\|alpha\|beta' && fail "proj catalog leaked a library name"
+env -u LMOD_CMD PATH=/usr/bin:/bin "$root/bin/proj" catalog >/dev/null 2>&1 && fail "proj catalog without Lmod"
+
+# proj list --json: a stable, read-only snapshot for other programs.
+json_home="$tmp/json-home"; json_cache="$tmp/json-cache"
+mkdir -p "$tmp/work/jsonproj" "$tmp/work/jsonother"
+json_proj() { PROJ_HOME="$json_home" PROJ_CACHE_HOME="$json_cache" PROJ_SITE_CONFIG="${JSON_SITE:-/nonexistent}" PROJ_CONFIG=/nonexistent "$root/bin/proj" "$@"; }
+json_proj create jsonproj --root "$tmp/work/jsonproj" >/dev/null || fail "snapshot fixture"
+json_proj create jsonother --root "$tmp/work/jsonother" >/dev/null
+json_proj config --env jsonproj modules.project='["site-defaults/2", "pdk-demo/3.1"]' >/dev/null
+json_proj config --env jsonproj modules.application='["simtool", "suite-lab/5"]' >/dev/null
+json_proj config --env jsonproj modules.compiler='["gcc/13.3.0"]' >/dev/null
+json_proj config --env jsonother modules.toolchain='["node/24.21.0"]' >/dev/null
+before_state=$(find "$json_home" -type f -printf '%T@ %s %p\n' | sort)
+snapshot=$(json_proj list --json 2>"$tmp/json-stderr") || fail "proj list --json"
+[ "$before_state" = "$(find "$json_home" -type f -printf '%T@ %s %p\n' | sort)" ] || fail "list --json changed the registry"
+[ ! -e "$json_cache" ] || fail "list --json created cache files"
+[ ! -s "$tmp/json-stderr" ] || fail "list --json wrote to stderr: $(cat "$tmp/json-stderr")"
+printf '%s' "$snapshot" | /usr/bin/python3 -I -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["schema"] == 1 and set(d) == {"schema", "proj_version", "generated", "skipped", "environments"}
+env = {e["name"]: e for e in d["environments"]}
+assert list(env) == ["jsonother", "jsonproj"], list(env)
+a = env["jsonproj"]
+assert set(a) == {"name", "scope", "project_root", "bundles", "modules", "library_bundles", "updated"}
+assert a["bundles"] == ["site-defaults"] and a["library_bundles"] == ["pdk-demo"]
+assert a["modules"] == [{"name": "simtool", "version": None}, {"name": "suite-lab", "version": "5"}, {"name": "gcc", "version": "13.3.0"}], a["modules"]
+assert a["scope"] == "private" and a["project_root"].endswith("/jsonproj") and a["updated"].endswith("Z")
+' || fail "list --json content"
+printf '%s' "$snapshot" | grep -q '3\.1' && fail "list --json leaked a library version"
+printf '%s' "$snapshot" | grep -q "$(id -un)" && fail "list --json leaked a user name"
+# With no shared registry configured, --scope shared is an error, never an empty list.
+json_proj list --json --scope shared >"$tmp/json-shared" 2>/dev/null && fail "list --json --scope shared without a shared registry"
+[ ! -s "$tmp/json-shared" ] || fail "list --json --scope shared printed output while failing"
+[ "$(json_proj list --json --under "$tmp/work/jsonother" | /usr/bin/python3 -I -c 'import json,sys; print([e["name"] for e in json.load(sys.stdin)["environments"]])')" = "['jsonother']" ] ||
+  fail "list --json --under"
+printf 'schema = 1\nlibrary_prefixes = ["site-"]\n' >"$tmp/json-site.toml"
+JSON_SITE="$tmp/json-site.toml" json_proj list --json | /usr/bin/python3 -I -c '
+import json, sys
+a = {e["name"]: e for e in json.load(sys.stdin)["environments"]}["jsonproj"]
+assert a["library_bundles"] == ["site-defaults"] and a["bundles"] == ["pdk-demo"], a
+' || fail "list --json library_prefixes"
+mkdir -p "$json_home/envs/broken" && printf 'schema = 2\n' >"$json_home/envs/broken/project.toml"
+json_proj list --json 2>/dev/null | /usr/bin/python3 -I -c 'import json,sys; assert json.load(sys.stdin)["skipped"] == 1' ||
+  fail "list --json counts invalid environments"
+json_proj list --json 2>&1 >/dev/null | grep -q 'skipped invalid environment' || fail "list --json reports invalid environments on stderr"
+json_proj list --scope shared 2>/dev/null | grep -q 'No environments yet' || fail "list --scope shared in a table"
+
+# The website's timer: a service with an empty environment, no Lmod, nothing writable.
+timer="$tmp/timer"; mkdir -p "$timer/shared/ledger" "$timer/home" "$timer/work/ledger"
+printf 'schema = 1\nregistry = "%s/private"\nshared_registry = "%s/shared"\ngroup = "%s"\n' "$timer" "$timer" "$(id -gn)" >"$timer/site.toml"
+PROJ_HOME="$timer/ph" PROJ_SITE_CONFIG="$timer/site.toml" PROJ_CONFIG=/nonexistent "$root/bin/proj" create ledger --shared --root "$timer/work/ledger" >/dev/null 2>&1 || {
+  # Without a usable shared group on this host, place the document by hand.
+  printf 'schema = 1\n\n[project]\nname = "ledger"\nroot = "%s"\n' "$timer/work/ledger" >"$timer/shared/ledger/project.toml"
+}
+timer_cmd() { env -i PROJ_SITE_CONFIG="$timer/site.toml" PROJ_CONFIG=/nonexistent "$root/bin/proj" list --json --scope shared --under "$timer/work"; }
+tree_before=$(find "$timer" -printf '%T@ %y %p\n' | sort)
+timer_out=$(timer_cmd 2>"$tmp/timer-stderr") || fail "timer command failed: $(cat "$tmp/timer-stderr")"
+[ ! -s "$tmp/timer-stderr" ] || fail "timer command wrote to stderr: $(cat "$tmp/timer-stderr")"
+[ "$tree_before" = "$(find "$timer" -printf '%T@ %y %p\n' | sort)" ] || fail "timer command wrote to disk"
+printf '%s' "$timer_out" | /usr/bin/python3 -I -c '
+import json, sys
+d = json.load(sys.stdin)
+assert [e["name"] for e in d["environments"]] == ["ledger"] and d["environments"][0]["scope"] == "shared", d
+' || fail "timer command content"
+# A private environment of the same name must not hide the shared one.
+mkdir -p "$timer/private/ledger" && printf 'schema = 1\n\n[project]\nname = "ledger"\nroot = "%s"\n' "$timer/work" >"$timer/private/ledger/project.toml"
+timer_cmd | /usr/bin/python3 -I -c '
+import json, sys
+e = json.load(sys.stdin)["environments"]
+assert [x["scope"] for x in e] == ["shared"], e
+' || fail "private environment shadowed the shared listing"
+rm -r "$timer/private"
+# Failure is a non-zero exit with nothing on stdout.
+failed_cleanly() { # <description> -- run the timer command, expect failure and empty stdout
+  out=$(timer_cmd 2>/dev/null) && fail "$1: exited 0"
+  [ -z "$out" ] || fail "$1: printed partial output"
+}
+mv "$timer/shared" "$timer/shared.away"; failed_cleanly "missing shared registry"; mv "$timer/shared.away" "$timer/shared"
+printf 'schema = 1\nregistry = "%s/private"\n' "$timer" >"$timer/nosite.toml"
+out=$(env -i PROJ_SITE_CONFIG="$timer/nosite.toml" PROJ_CONFIG=/nonexistent "$root/bin/proj" list --json --scope shared 2>/dev/null) && fail "no shared registry configured: exited 0"
+[ -z "$out" ] || fail "no shared registry configured: printed output"
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$timer/shared"; failed_cleanly "unreadable shared registry"; chmod 755 "$timer/shared"
+  chmod 000 "$timer/shared/ledger"
+  out=$(timer_cmd 2>/dev/null) || fail "unreadable entry should be counted, not fatal"
+  printf '%s' "$out" | /usr/bin/python3 -I -c 'import json,sys; assert json.load(sys.stdin)["skipped"] == 1' || fail "unreadable entry not counted as skipped"
+  chmod 755 "$timer/shared/ledger"
+fi
+pass "list --json for a service: stdout only, no HOME or Lmod, clean failure"
 
 # Modules the login loaded come back when an environment that displaced them is deactivated.
 # A fake Lmod that swaps like the real one: loading a version replaces another of the same name.
@@ -974,7 +1089,7 @@ EOF
   got=$(PROJ_CONFIG="$tmp/restore-off.toml" restore_lmod acme/2.0 lmodpin)
   [ -z "$got" ] || fail "real Lmod: restore_login_modules = false must not restore (left '$got')"
 fi
-pass "deactivation puts the login's modules back, and the switch turns it off"
+pass "proj list --json and proj catalog are read-only and library-free, and deactivation restores the login's modules"
 
 # The active environment is reloaded in the shell, in both adapters.
 cat >"$tmp/use-adapter.sh" <<'EOF'

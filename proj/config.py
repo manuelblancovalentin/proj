@@ -21,6 +21,8 @@ CONFIG_KEYS = {
     "shared_registry",
     "group",
     "python_manager",
+    "library_prefixes",
+    "library_names",
     "project_roots",
     "module_cache",
     "behavior",
@@ -40,10 +42,21 @@ class Config:
     group: str | None = None
     site_config: Path | None = None
     python_manager: str = "micromamba"
+    # Module-name prefixes and exact names that mark protected libraries;
+    # machine-readable output never lists such names among ordinary modules
+    # or bundles.
+    library_prefixes: tuple[str, ...] = ("pdk-",)
+    library_names: tuple[str, ...] = ()
     change_directory: bool = True
     run_startup_hooks: bool = True
     # Load back the modules a login had when an environment displaced them.
     restore_login_modules: bool = True
+
+    def is_library(self, name: str) -> bool:
+        """True for a protected library: listed by name, or starting with a prefix."""
+        return name in self.library_names or any(
+            name.startswith(prefix) for prefix in self.library_prefixes
+        )
 
 
 def _expand_path(value: str) -> Path:
@@ -73,13 +86,25 @@ def _optional_string(data: dict, key: str, source: str) -> str | None:
     return value
 
 
+def _home() -> Path:
+    """The home directory, or a path that cannot exist when there is none.
+
+    A service may run with no HOME and no passwd entry. Commands that only read
+    (`proj list --json` with a site configuration) must still work there, and
+    any command that tries to write under the missing home fails with an
+    ordinary "no such directory" error.
+    """
+    try:
+        return Path.home()
+    except (RuntimeError, KeyError):
+        return Path("/nonexistent-home")
+
+
 def load_config() -> Config:
-    xdg_config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    proj_home = _expand_path(
-        os.environ.get("PROJ_HOME", str(Path.home() / ".proj"))
-    )
+    xdg_config = Path(os.environ.get("XDG_CONFIG_HOME") or _home() / ".config")
+    proj_home = _expand_path(os.environ.get("PROJ_HOME") or str(_home() / ".proj"))
     cache_home = _expand_path(
-        os.environ.get("PROJ_CACHE_HOME", str(Path.home() / ".cache" / "proj"))
+        os.environ.get("PROJ_CACHE_HOME") or str(_home() / ".cache" / "proj")
     )
     site_file = Path(
         os.environ.get("PROJ_SITE_CONFIG", TOOL_ROOT / "etc" / "config.toml")
@@ -127,6 +152,19 @@ def load_config() -> Config:
             f"{source}: python_manager must be one of: " + ", ".join(PYTHON_MANAGERS)
         )
 
+    raw_prefixes = data.get("library_prefixes", ["pdk-"])
+    if not isinstance(raw_prefixes, list) or not all(
+        isinstance(item, str) and item for item in raw_prefixes
+    ):
+        raise ConfigError(f"{source}: library_prefixes must be an array of non-empty strings")
+    raw_names = data.get("library_names", [])
+    if not isinstance(raw_names, list) or not all(
+        isinstance(item, str) and item and "/" not in item for item in raw_names
+    ):
+        raise ConfigError(
+            f"{source}: library_names must be an array of module names without a version"
+        )
+
     env_roots = os.environ.get("PROJ_PROJECT_ROOTS")
     raw_roots = env_roots.split(os.pathsep) if env_roots else data.get("project_roots", [])
     if not isinstance(raw_roots, list) or not all(
@@ -154,6 +192,8 @@ def load_config() -> Config:
         group=group,
         site_config=site_file if site_file.is_file() else None,
         python_manager=python_manager,
+        library_prefixes=tuple(raw_prefixes),
+        library_names=tuple(raw_names),
         change_directory=bool(behavior.get("change_directory", True)),
         run_startup_hooks=bool(behavior.get("run_startup_hooks", True)),
         restore_login_modules=bool(behavior.get("restore_login_modules", True)),

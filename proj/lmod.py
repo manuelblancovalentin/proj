@@ -152,3 +152,31 @@ def families(specs: Iterable[str]) -> dict[str, str]:
                 result[spec] = match.group(1)
                 break
     return result
+
+
+_DEPENDENCY = re.compile(r"^(?:depends_on|load|always_load|try_load)\((.*)\)\s*$")
+_QUOTED = re.compile(r"""["']([^"']+)["']""")
+
+
+def members(spec: str) -> list[str] | None:
+    """The module names (no versions) a modulefile loads or depends on.
+
+    Read from `module show`, keeping only the dependency commands; nothing else
+    the modulefile does is kept. None when Lmod cannot show the module.
+    """
+    try:
+        text = _lmod("show", spec)
+    except ProjError:
+        return None
+    if not any(_BLOCK_HEADER.match(line) for line in text.splitlines()):
+        return None
+    names: list[str] = []
+    for line in text.splitlines():
+        match = _DEPENDENCY.match(line.strip())
+        if not match:
+            continue
+        for quoted in _QUOTED.findall(match.group(1)):
+            name = quoted.partition("/")[0]
+            if name and name not in names:
+                names.append(name)
+    return names

@@ -18,6 +18,14 @@
 
 `proj use`
 
+- Print the environments as JSON (a read-only snapshot for other programs):
+
+`proj list --json`
+
+- Print, as JSON, the modules and suites a person may add to a login:
+
+`proj catalog`
+
 - List what you can use, by category:
 
 `proj use --list`

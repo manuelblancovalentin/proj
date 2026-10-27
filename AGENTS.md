@@ -72,6 +72,13 @@ activation.
   configuration loads so a broken configuration cannot block it. The source
   repository and ref live in `PREFIX/etc/source.toml`; `PROJ_UPGRADE_BASE`
   replaces the host for tests.
+- Machine-readable output (`proj list --json`, `proj catalog`) is read-only,
+  carries a `schema` number that grows with any key change, and never contains
+  library paths, library versions, or user names. Libraries are recognised by
+  module name (`library_prefixes`, `pdk-` by default, and `library_names`) and are left out
+  of ordinary lists, only counted or named apart. Nothing about a library
+  tree is read to build either document. The format is in
+  `docs/machine-readable.md`.
 - Activation records the login's loaded modules (`PROJ_LOGIN_MODULES`);
   deactivation, a failed activation, and `proj use`/`unuse` reloads load back
   whatever an environment displaced, so a login's own choices survive.

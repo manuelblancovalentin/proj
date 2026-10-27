@@ -371,6 +371,13 @@ version of the same tool, say), the environment's choice wins while it is
 active, and deactivating puts your own modules back (`restore_login_modules = false`
 in the `[behavior]` table of the configuration turns this off).
 
+Other programs can read environments and the module catalogue as JSON; see
+[machine-readable output](docs/machine-readable.md).
+
+A coding agent working in a project can read
+[how proj declares and enters a Python environment](docs/for-project-agents.md)
+(conda-family environments and a `venv` inside the project folder).
+
 ### Python environments
 
 proj links an **existing** environment; create it with your manager first:
@@ -759,6 +766,8 @@ registry = "~/.proj/envs"            # private registry; ~ expands per user
 shared_registry = "/opt/proj/envs"   # shared registry (shared installs)
 group = "proj"                       # required with shared_registry
 python_manager = "conda"             # default manager: micromamba, conda, mamba
+library_prefixes = ["pdk-"]          # module-name prefixes of protected libraries
+library_names = ["iplibs"]           # protected libraries that do not use a prefix
 project_roots = ["/srv/team-envs"]   # extra metadata roots
 module_cache = "~/.cache/proj/modulefiles"
 
@@ -842,7 +851,8 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj create <name> [--root DIR] [--shared [--group-writable]] [--use NAME]...` | Register a project |
 | `proj use [name[/version]]... [--env NAME] [--list]` | Use a library, suite, or tool; with no name, show what is used |
 | `proj unuse <name>... [--env NAME]` | Stop using a module |
-| `proj list` | List environments with scope and owner |
+| `proj list [--json] [--scope all\|shared\|private] [--under DIR]...` | List environments with scope and owner; `--json` prints a snapshot for other programs |
+| `proj catalog` | Print, as JSON, the modules, suites and bundles a person may add to a login |
 | `proj avail [category\|name] [--json]` | List the modules Lmod can load, by category |
 | `proj activate <name>` / `proj deactivate` | Enter or leave an environment |
 | `proj remove <name> [--yes] [--delete-files\|--keep-files]` | Delete an environment, asking first |
