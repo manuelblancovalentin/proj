@@ -551,16 +551,16 @@ tool, and proj finds the module, reads its category and who may use it from the
 module itself, and records it in the environment.
 
 ```sh
-proj create atlas --use gf22 --use cadence    # at creation
-proj use gf22                                 # in the active environment
-proj use saed32/04152022 --env atlas          # a pinned version, another environment
+proj create atlas --use alpha --use flowkit    # at creation
+proj use alpha                                 # in the active environment
+proj use beta/1.1 --env atlas          # a pinned version, another environment
 proj use                                      # what this environment uses now
 proj use --list                               # what you could use, by category
-proj unuse gf22
+proj unuse alpha
 ```
 
-- **Names.** `gf22` finds the module `pdk-gf22`, `cadence` finds
-  `suite-cadence`, and an exact module name (`genus`, `genus/20.1`) works too.
+- **Names.** `alpha` finds the module `pdk-alpha`, `flowkit` finds
+  `suite-flowkit`, and an exact module name (`simtool`, `simtool/20.1`) works too.
   If more than one of those exists, or none does, proj prints the candidates
   and stops; it never guesses. Type the full module name to choose one.
 - **Category.** It comes from the module's `whatis("Category: ...")` tag, so you
@@ -577,8 +577,8 @@ proj unuse gf22
   proj says so.
 - **Access.** A module may carry `whatis("Group: <unix group>")` (several groups
   separated by commas or spaces, or `any`; no tag means everyone). If you are
-  not in one of them, `proj use gf22` stops with *gf22 needs the Unix group
-  gf22 (you are not in it). Ask an administrator.* and `proj use --list` shows
+  not in one of them, `proj use alpha` stops with *alpha needs the Unix group
+  alpha (you are not in it). Ask an administrator.* and `proj use --list` shows
   only what you can use, plus a short section of modules that exist but need a
   group you lack.
 - **Completion.** `proj use <Tab>` offers the short names you can use,
@@ -589,7 +589,7 @@ Modules meant for this should be named `pdk-<name>` (libraries) or
 
 ```lua
 whatis("Category: project")    -- compiler, toolchain, application, or project
-whatis("Group: gf22")          -- who may use it; "any", or omit, for everyone
+whatis("Group: alpha")          -- who may use it; "any", or omit, for everyone
 family("pdk")                  -- libraries of one family replace each other
 ```
 
@@ -933,8 +933,8 @@ While an environment is active, the adapters show `[proj:<name>]` in front of
 your prompt, and nothing once it is deactivated:
 
 ```text
-user@host:~$ proj activate netsurf
-[proj:netsurf] user@host:netsurf$
+user@host:~$ proj activate maple
+[proj:maple] user@host:maple$
 ```
 
 Whoever owns the prompt should draw it, so this is a default, not a takeover:

@@ -107,7 +107,7 @@ class CatalogTests(unittest.TestCase):
 
 class RenderTests(unittest.TestCase):
     ROWS = [
-        ("gcc", "11.5.0  13.3.0*  " + "9.5.0  " * 12, "atlas, trips"),
+        ("gcc", "11.5.0  13.3.0*  " + "9.5.0  " * 12, "atlas, birch"),
         ("node", "24.21.0*", ""),
     ]
     HEADERS = ("MODULE", "VERSIONS", "USED BY")

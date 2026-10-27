@@ -54,7 +54,7 @@ class ConfigMenuTests(unittest.IsolatedAsyncioTestCase):
         self.state.scan_modules = lambda: [
             ("cmake/3.30", "toolchain"),
             ("gcc/14", "compiler"),
-            ("genus/21.1", "application"),
+            ("simtool/21.1", "application"),
             ("ninja/1.12", "toolchain"),
             ("node/24.21.0", ""),  # untagged
         ]
@@ -177,7 +177,7 @@ class ConfigMenuTests(unittest.IsolatedAsyncioTestCase):
             await pilot.click("#cancel")
             await pilot.pause()
             await self.open_entry(pilot, "modules:application")
-            self.assertEqual(self.listed(self.app.screen), ["genus/21.1", "node/24.21.0"])
+            self.assertEqual(self.listed(self.app.screen), ["simtool/21.1", "node/24.21.0"])
 
     async def test_show_all_categories_and_selections_survive_switching_back(self):
         async with self.app.run_test(size=(120, 40)) as pilot:
@@ -187,13 +187,13 @@ class ConfigMenuTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(len(self.listed(self.app.screen)), 5)
             await pilot.click("#filter")
-            await pilot.press(*"genus", "enter")  # the only match, from another category
+            await pilot.press(*"simtool", "enter")  # the only match, from another category
             await pilot.click("#scope")
             await pilot.pause()
-            self.assertEqual(self.listed(self.app.screen), ["gcc/14", "genus/21.1", "node/24.21.0"])
+            self.assertEqual(self.listed(self.app.screen), ["gcc/14", "simtool/21.1", "node/24.21.0"])
             await pilot.click("#apply")
             await pilot.pause()
-            self.assertEqual(self.state.modules("compiler"), ["genus/21.1"])
+            self.assertEqual(self.state.modules("compiler"), ["simtool/21.1"])
 
     async def test_modules_dialog_refuses_the_generated_namespace(self):
         async with self.app.run_test(size=(120, 40)) as pilot:

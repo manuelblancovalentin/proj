@@ -1,6 +1,6 @@
 """`proj use`: pick a module by one word, from what Lmod can load.
 
-A person says `gf22`, `saed32/04152022`, or `genus`; this module finds the
+A person says `alpha`, `beta/1.1`, or `simtool`; this module finds the
 module, reads its category and access from its own whatis tags, and plans the
 change to an environment's module lists. It starts no process; callers pass in
 the Lmod catalog and family information.
@@ -19,7 +19,7 @@ from .errors import ProjError
 from .lmod import CATEGORIES, ModuleEntry
 
 # Libraries and tool suites are published under these prefixes, so a person can
-# say `gf22` for the module `pdk-gf22`, and `cadence` for `suite-cadence`.
+# say `alpha` for the module `pdk-alpha`, and `flowkit` for `suite-flowkit`.
 PREFIXES = ("pdk-", "suite-")
 
 
@@ -118,7 +118,7 @@ def resolve(text: str, entries: Iterable[ModuleEntry], groups: set[str] | None =
     entries = list(entries)
     base, version = split_spec(text)
     if not base:
-        raise ProjError("name a module to use, for example: proj use gf22")
+        raise ProjError("name a module to use, for example: proj use alpha")
     by_name = {entry.name: entry for entry in entries}
     matches = [by_name[name] for name in (base, *(prefix + base for prefix in PREFIXES)) if name in by_name]
     if not matches:

@@ -10,7 +10,7 @@
 
 - Register the current directory as a project that uses a library and a tool suite:
 
-`proj create {{project_name}} --use {{gf22}} --use {{cadence}}`
+`proj create {{project_name}} --use {{alpha}} --use {{flowkit}}`
 
 - Use a library, suite, or tool in the active environment, then see what it uses:
 
