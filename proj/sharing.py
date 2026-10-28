@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import access
 from .config import Config
-from .discovery import discover
+from .discovery import discover, resolve
 from .errors import ProjError
 from .metadata import NAME_RE, load_project
 
@@ -135,7 +135,7 @@ def active_elsewhere(name: str) -> list[str]:
     return found
 
 
-def share(config: Config, name: str, group_writable: bool) -> Path:
+def share(config: Config, name: str, level: str = "owner", group: str | None = None) -> Path:
     """Move a private environment to the shared registry; returns its new document."""
     if not NAME_RE.fullmatch(name):
         raise ProjError("project names may contain letters, numbers, dots, underscores, and dashes")
@@ -148,6 +148,7 @@ def share(config: Config, name: str, group_writable: bool) -> Path:
     load_project(source / DOCUMENT)
     _check_not_active(name)
     registry = access.shared_registry(config)
+    gid = access.environment_group_id(config, group)
     destination = registry / name
     _check_free(destination, name)
     if not (os.access(source, os.W_OK) and os.access(config.registry, os.W_OK)):
@@ -155,9 +156,9 @@ def share(config: Config, name: str, group_writable: bool) -> Path:
     complete = _move(
         source,
         destination,
-        access.SHARED_DIR_MODES[group_writable],
-        access.SHARED_FILE_MODES[group_writable],
-        access.group_id(config),
+        access.SHARED_DIR_MODES[level],
+        access.SHARED_FILE_MODES[level],
+        gid,
     )
     if not complete:
         print(f"proj: could not delete everything in {source}; the environment has moved", file=sys.stderr)
@@ -190,3 +191,35 @@ def unshare(config: Config, name: str, force: bool) -> Path:
     if not _move(source, destination, None, None, None):
         print(f"proj: could not delete everything in {source}; the environment has moved", file=sys.stderr)
     return destination / DOCUMENT
+
+
+def change_access(config: Config, name: str, level: str | None) -> tuple[Path, str, str]:
+    """Show, or with `level` set, change who can see and change a shared environment.
+
+    Returns its directory, the access it had and the access it has. Only the
+    creator can change it; the group stays. The permissions of every file move
+    together, the directory last when it opens up and first when it closes.
+    """
+    if not NAME_RE.fullmatch(name):
+        raise ProjError("project names may contain letters, numbers, dots, underscores, and dashes")
+    project = resolve(config, name)
+    if access.scope(config, project) != "shared":
+        raise ProjError(
+            f"environment {name!r} is {access.scope(config, project)}; only a shared environment has an access level"
+        )
+    directory = project.metadata_path.parent
+    before = access.level_of(project)
+    if level is None or level == before:
+        return directory, before, before
+    if os.getuid() != directory.stat().st_uid:
+        raise ProjError(
+            f"environment {name!r} belongs to {access.owner_name(directory)}; only its creator can change its access"
+        )
+    mode = access.SHARED_FILE_MODES[level]
+    files = [path for path in directory.rglob("*") if path.is_file() and not path.is_symlink()]
+    folders = [directory, *(path for path in directory.rglob("*") if path.is_dir() and not path.is_symlink())]
+    opening = level == "group-writable"  # more people can read or write than a private one allows
+    for step in ("files", "folders") if opening else ("folders", "files"):
+        for path in files if step == "files" else folders:
+            os.chmod(path, mode if step == "files" else access.SHARED_DIR_MODES[level])
+    return directory, before, level

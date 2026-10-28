@@ -68,7 +68,7 @@ class SnapshotTests(unittest.TestCase):
     def test_the_document_has_stable_keys(self):
         document = self.snapshot()
         self.assertEqual(document["schema"], SCHEMA)
-        self.assertEqual(set(document), {"schema", "proj_version", "generated", "skipped", "environments"})
+        self.assertEqual(set(document), {"schema", "proj_version", "generated", "skipped", "unreadable", "environments"})
         self.assertRegex(document["generated"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         keys = {"name", "scope", "project_root", "bundles", "modules", "library_bundles", "updated"}
         for environment in document["environments"]:

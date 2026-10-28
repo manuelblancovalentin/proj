@@ -55,6 +55,7 @@ commands=(
   'deactivate:Deactivate the current project'
   'share:Move a private environment to the shared registry'
   'unshare:Move a shared environment you created back to private'
+  'access:Show or change who can see and change a shared environment'
   'remove:Delete a project environment'
   'use:Use a library, suite, or tool in an environment'
   'unuse:Stop using a module in an environment'
@@ -119,7 +120,14 @@ case $words[2] in
     if (( CURRENT == 3 )); then
       _proj_project_names
     else
-      _values 'option' --group-writable
+      _values 'option' --group --group-writable --private
+    fi
+    ;;
+  access)
+    if (( CURRENT == 3 )); then
+      _proj_project_names
+    else
+      _values 'option' --owner-only --group-writable --private
     fi
     ;;
   unshare)
@@ -142,7 +150,7 @@ case $words[2] in
     elif [[ ${words[CURRENT-1]-} == --use ]]; then
       _proj_use_names
     elif (( CURRENT >= 4 )); then
-      _values 'option' --root --shared --group-writable --use
+      _values 'option' --root --shared --group --group-writable --private --use
     fi
     ;;
   use)

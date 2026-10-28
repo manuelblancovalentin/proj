@@ -34,8 +34,10 @@ It reads only the registries. It needs no Lmod, writes nothing, and creates no
 cache. `--scope shared` leaves out the invoking user's private registry (a
 program that runs as a service wants this), and each `--under DIR` keeps only
 environments whose project folder is inside `DIR`; both also filter the table
-of `proj list`. Environments that cannot be read are counted in `skipped` and
-named on stderr.
+of `proj list`. An invalid environment is counted in `skipped` and named on
+stderr. A shared environment limited to a group you are not in (see
+`proj access`) is expected, so it is only counted, in `unreadable`, and never
+named; the table of `proj list` sums them up in one line on stderr.
 
 **For a service** (for example a systemd timer), the complete command is
 
@@ -50,9 +52,12 @@ home are never created or modified). It builds the whole document first, so a
 failure exits non-zero (status 2) with **nothing** on standard output and the
 reason on standard error. These are failures, not empty lists: no shared
 registry configured, a shared registry that does not exist, a registry that
-cannot be listed. An environment inside the registry that cannot be read, or
-whose document is invalid, is *not* a failure: it is counted in `skipped` and
-named on stderr, so a service should alert on `skipped > 0` if it cares.
+cannot be listed. An environment inside the registry whose document is invalid
+is *not* a failure: it is counted in `skipped` and named on stderr, so a service
+should alert on `skipped > 0` if it cares. One that the service's user has no
+permission to read (limited to a group it is not in) is counted in `unreadable`
+instead, with nothing on stderr: it is normal for gated projects, and the
+service can tell how many it cannot see.
 `--scope shared` also keeps a private environment of the same name from hiding
 a shared one. A project appears on the site only if its environment lives in
 the shared registry (`proj create ... --shared`) and its folder is under `DIR`.
@@ -63,6 +68,7 @@ the shared registry (`proj create ... --shared`) and its folder is under `DIR`.
   "proj_version": "0.8.0",
   "generated": "2026-10-27T18:00:00Z",
   "skipped": 0,
+  "unreadable": 0,
   "environments": [
     {
       "name": "atlas",

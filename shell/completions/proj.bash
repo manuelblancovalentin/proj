@@ -21,7 +21,7 @@ _proj_complete() {
   local IFS=$'\n'
 
   if (( COMP_CWORD == 1 )); then
-    candidates=$'create\nlist\navail\nuse\nunuse\nactivate\ndeactivate\nshare\nunshare\nremove\nupgrade\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
+    candidates=$'create\nlist\navail\nuse\nunuse\nactivate\ndeactivate\nshare\nunshare\naccess\nremove\nupgrade\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
     candidates+=$'\nset-python-env\npython-env\nmodule\nenv\ndoctor\ninit\ninstall\n--version'
   elif [[ $prev == --env || $prev == --project ]]; then
     candidates=$(_proj_cli _complete projects 2>/dev/null)
@@ -69,7 +69,14 @@ _proj_complete() {
         if (( COMP_CWORD == 2 )); then
           candidates=$(_proj_cli _complete projects 2>/dev/null)
         else
-          candidates=--group-writable
+          candidates=$'--group\n--group-writable\n--private'
+        fi
+        ;;
+      access)
+        if (( COMP_CWORD == 2 )); then
+          candidates=$(_proj_cli _complete projects 2>/dev/null)
+        else
+          candidates=$'--owner-only\n--group-writable\n--private'
         fi
         ;;
       unshare)
@@ -80,7 +87,7 @@ _proj_complete() {
         fi
         ;;
       create)
-        (( COMP_CWORD >= 3 )) && candidates=$'--root\n--shared\n--group-writable\n--use'
+        (( COMP_CWORD >= 3 )) && candidates=$'--root\n--shared\n--group\n--group-writable\n--private\n--use'
         ;;
       config)
         candidates=$'--env\nproject.description\nproject.root\nproject.shell'

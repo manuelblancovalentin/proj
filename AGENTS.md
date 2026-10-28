@@ -116,6 +116,14 @@ activation.
   (`2775`/`664`). Writes keep the document's mode and group. The creator is
   the environment directory's owner. World-writable metadata is refused, and
   one invalid document must not break discovery for others.
+- A shared environment may belong to a group other than the registry's
+  (`--group`, one the creator is in) and has one of three levels: owner-only
+  (`2755`/`644`), group-writable (`2775`/`664`), or private to its group
+  (`2770`/`660`); `proj access` shows or changes the level and only the creator
+  may. Discovery counts an environment the person has no permission to read
+  (`Discovery.unreadable`) and never names it: `proj list` sums them up in one
+  line on stderr, `proj list --json` reports the count as `unreadable` (and
+  `skipped` stays for invalid documents).
 - Precedence is private, shared, then extra roots; a private environment
   shadows a shared one with the same name.
 - `proj share`/`proj unshare` move an environment between your private and the

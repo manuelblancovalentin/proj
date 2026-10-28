@@ -30,7 +30,7 @@ proj module add compiler gcc/14
 .fi
 .SH COMMANDS
 .TP
-.BI "proj create " name " [--root " directory "] [--shared [--group-writable]] [--use " name "]..."
+.BI "proj create " name " [--root " directory "] [--shared [--group " group "] [--group-writable | --private]] [--use " name "]..."
 Register a project. The root defaults to the current directory. Creates a
 valid starter document in the private registry,
 prints its location, and leaves optional fields commented.
@@ -38,16 +38,36 @@ prints its location, and leaves optional fields commented.
 creates it in the shared registry instead; only its creator may change it
 unless
 .B --group-writable
-is also given. Members cannot remove environments they do not own.
+is also given (directory 2775, document 664). With
+.B --private
+only the group can see and change it (2770 and 660).
+.B --group
+gives the environment to a group you are in instead of the registry's group; its
+members must also be able to reach the registry. Members cannot remove
+environments they do not own.
 .TP
-.BR "proj share " name " [--group-writable]"
+.BR "proj share " name " [--group " group "] [--group-writable | --private]"
 Move one of your private environments to the shared registry: same name, same
 document (byte for byte) and files, with the permissions
 .B proj create --shared
 gives (directory 2755 and document 644, or 2775 and 664 with
-.BR --group-writable ).
+.BR --group-writable ,
+or 2770 and 660 with
+.BR --private ;
+.B --group
+names the group).
 Refused when the shared registry already has that name. The environment active
 in the current shell cannot be moved.
+.TP
+.BR "proj access " name " [--owner-only | --group-writable | --private]"
+Show, or with a flag change, who can see and change a shared environment:
+.B --owner-only
+(everyone who reaches the registry reads it, only its creator changes it),
+.B --group-writable
+(its group changes it) or
+.B --private
+(only its group sees and changes it). Only its creator can change it; the group
+stays. The permissions of all its files change together.
 .TP
 .BR "proj unshare " name " [--force]"
 The reverse: move a shared environment back to your private registry. Only its
@@ -63,12 +83,13 @@ where it was.
 .BR "proj list " "[--json] [--scope all|shared|private] [--under " dir "]..."
 List registered project environments with their scope and owner. A private
 environment shadows a shared one with the same name. Invalid documents are
-reported and skipped.
+reported and skipped; shared environments you have no permission to read (limited
+to another group) are left out and counted in one line.
 .B --json
 prints one read-only JSON document (schema number, then per environment its
 name, scope, project folder, bundles, modules with pinned versions, library
 bundles kept apart, the linked Python environment when there is one, and
-last-change time) for other programs; protected
+last-change time, with counts of skipped and unreadable environments) for other programs; protected
 libraries are recognised by the
 .B library_prefixes
 and

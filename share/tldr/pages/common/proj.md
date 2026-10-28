@@ -42,11 +42,15 @@
 
 `proj create {{project_name}} --shared`
 
-- Move a private environment to the shared registry, or back to private:
+- Move a private environment to the shared registry (optionally to a group, and limited to it), or back to private:
 
-`proj share {{project_name}}`
+`proj share {{project_name}} {{[--group group_name] [--private]}}`
 
 `proj unshare {{project_name}}`
+
+- Show or change who can see and change a shared environment:
+
+`proj access {{project_name}} {{[--owner-only|--group-writable|--private]}}`
 
 - Activate a project environment:
 

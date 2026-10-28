@@ -724,6 +724,8 @@ name as a shared one takes precedence for that user.
 cd /data/projects/atlas
 proj create atlas --shared                     # only you can change it
 proj create atlas --shared --group-writable    # any member can change it
+proj create atlas --shared --group lab         # the environment belongs to group lab
+proj create atlas --shared --group lab --private   # and only lab can see or change it
 proj set-python-env --env atlas atlas          # recorded by prefix path
 proj module add toolchain cuda/12.6 --env atlas
 proj list                                      # SCOPE "shared", OWNER you
@@ -734,6 +736,8 @@ proj list                                      # SCOPE "shared", OWNER you
 ```sh
 proj share atlas                     # move your private atlas to the shared registry
 proj share atlas --group-writable    # ... and let any member change it
+proj share atlas --group lab         # ... giving it to the group "lab"
+proj share atlas --group lab --private   # ... and only lab can see it
 proj unshare atlas                   # back to private (only its creator)
 ```
 
@@ -754,7 +758,17 @@ activates the same one regardless of their own conda settings.
 ### Permissions and trust
 
 - Owner-only environments are created `2755` with a `644` document;
-  `--group-writable` ones `2775` and `664`. Edits keep those permissions.
+  `--group-writable` ones `2775` and `664`; `--private` ones `2770` and `660`,
+  which only their group can see (and change). Edits keep those permissions.
+  `proj access <name>` shows the level and `--owner-only`, `--group-writable` or
+  `--private` changes it later (only its creator can; the group stays).
+- An environment belongs to the registry's group unless created or shared with
+  `--group GROUP`, a group you are in. Its members also need access to the
+  registry itself, which is the registry's group: the registry is the outer
+  gate, the environment's group the inner one.
+- `proj list` leaves out shared environments you have no permission to read
+  and says how many in one line; `proj list --json` counts them in
+  `unreadable` and prints nothing about them.
 - `proj config` on an environment you cannot change fails with
   `environment 'atlas' belongs to alice`.
 - **Activation is a trust boundary.** Hooks and aliases from someone else's
@@ -864,8 +878,9 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 
 | Command | Purpose |
 |---|---|
-| `proj create <name> [--root DIR] [--shared [--group-writable]] [--use NAME]...` | Register a project |
-| `proj share <name> [--group-writable]` / `proj unshare <name> [--force]` | Move a private environment to the shared registry, or back |
+| `proj create <name> [--root DIR] [--shared [--group GROUP] [--group-writable\|--private]] [--use NAME]...` | Register a project |
+| `proj share <name> [--group GROUP] [--group-writable\|--private]` / `proj unshare <name> [--force]` | Move a private environment to the shared registry, or back |
+| `proj access <name> [--owner-only\|--group-writable\|--private]` | Show or change who can see and change a shared environment |
 | `proj use [name[/version]]... [--env NAME] [--list]` | Use a library, suite, or tool; with no name, show what is used |
 | `proj unuse <name>... [--env NAME]` | Stop using a module |
 | `proj list [--json] [--scope all\|shared\|private] [--under DIR]...` | List environments with scope and owner; `--json` prints a snapshot for other programs |

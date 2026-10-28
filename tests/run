@@ -613,6 +613,52 @@ share_env share lent --group-writable >/dev/null || fail "proj share --group-wri
   fail "group-writable permissions after share"
 pass "proj share and proj unshare move an environment between registries unchanged"
 
+# An environment can belong to a group other than the registry's, and be limited to it.
+other_group=$(id -Gn | tr ' ' '\n' | grep -vx "$(id -gn)" | head -n 1)
+if [ -n "$other_group" ]; then
+  mkdir -p "$tmp/work/gated"
+  share_env create gate-w --shared --group "$other_group" --root "$tmp/work/gated" >/dev/null || fail "create --shared --group"
+  [ "$(stat -c '%a %G' "$shared_registry/gate-w" "$shared_registry/gate-w/project.toml" | tr '\n' ' ')" = "2755 $other_group 644 $other_group " ] ||
+    fail "create --group gives the group and the owner-only modes"
+  share_env create gate-p --shared --group "$other_group" --private --root "$tmp/work/gated" >/dev/null || fail "create --private"
+  [ "$(stat -c '%a %G' "$shared_registry/gate-p" "$shared_registry/gate-p/project.toml" | tr '\n' ' ')" = "2770 $other_group 660 $other_group " ] ||
+    fail "create --private modes and group"
+  share_env create lent2 --root "$tmp/work/lent" >/dev/null || fail "access fixture"
+  share_env share lent2 --group "$other_group" --private >/dev/null || fail "share --group --private"
+  [ "$(stat -c '%a %G' "$shared_registry/lent2" | tr '\n' ' ')" = "2770 $other_group " ] || fail "share --group --private modes"
+  share_env access lent2 --group-writable >/dev/null || fail "proj access --group-writable"
+  [ "$(stat -c '%a' "$shared_registry/lent2" "$shared_registry/lent2/project.toml" | tr '\n' ' ')" = '2775 664 ' ] || fail "access --group-writable modes"
+  share_env access lent2 | grep -q 'group-writable' || fail "proj access reports the level"
+  share_env access lent2 --owner-only >/dev/null || fail "proj access --owner-only"
+  [ "$(stat -c '%a %G' "$shared_registry/lent2" | tr '\n' ' ')" = "2755 $other_group " ] || fail "access --owner-only keeps the group"
+  share_env access lent2 --private --group-writable >/dev/null 2>&1 && fail "access accepted two levels at once"
+  share_env access nosuch >/dev/null 2>&1 && fail "access of an unknown environment"
+  share_env create gate-x --group "$other_group" >/dev/null 2>&1 && fail "--group accepted without --shared"
+fi
+share_env create gate-y --shared --group no-such-group-here --root "$tmp/work/lent" >/dev/null 2>&1 && fail "create with a missing group"
+# Environments the person cannot read are summed up in one line and left out of the list.
+if [ "$(id -u)" != 0 ]; then
+  mkdir -p "$tmp/work/hidden"
+  share_env create hide-a --shared --private --root "$tmp/work/hidden" >/dev/null || fail "unreadable fixture a"
+  share_env create hide-b --shared --private --root "$tmp/work/hidden" >/dev/null || fail "unreadable fixture b"
+  chmod 000 "$shared_registry/hide-a" "$shared_registry/hide-b"
+  listed=$(share_env list 2>"$tmp/unreadable-stderr") || fail "list with unreadable environments"
+  [ "$(wc -l <"$tmp/unreadable-stderr")" = 1 ] &&
+    grep -q '^proj: 2 environments you have no permission to read not shown$' "$tmp/unreadable-stderr" ||
+    fail "list must print one summary line: $(cat "$tmp/unreadable-stderr")"
+  case $listed in *hide-*) fail "list showed an environment that cannot be read" ;; esac
+  grep -q hide- "$tmp/unreadable-stderr" && fail "the summary line must not name the environments"
+  share_env list --json 2>"$tmp/unreadable-stderr" | /usr/bin/python3 -I -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["unreadable"] == 2 and d["skipped"] == 0 and not any(e["name"].startswith("hide-") for e in d["environments"]), d
+' || fail "list --json unreadable count"
+  [ ! -s "$tmp/unreadable-stderr" ] || fail "list --json printed a warning for unreadable environments"
+  share_env info hide-a >/dev/null 2>&1 && fail "info of an unreadable environment"
+  chmod 770 "$shared_registry/hide-a" "$shared_registry/hide-b"
+fi
+pass "environments can belong to another group, be limited to it, and unreadable ones are summed up"
+
 remove_env() {
   PROJ_HOME="$tmp/remove-home" PROJ_CACHE_HOME="$tmp/remove-cache" "$root/bin/proj" "$@"
 }
@@ -908,7 +954,7 @@ snapshot=$(json_proj list --json 2>"$tmp/json-stderr") || fail "proj list --json
 printf '%s' "$snapshot" | /usr/bin/python3 -I -c '
 import json, sys
 d = json.load(sys.stdin)
-assert d["schema"] == 1 and set(d) == {"schema", "proj_version", "generated", "skipped", "environments"}
+assert d["schema"] == 1 and set(d) == {"schema", "proj_version", "generated", "skipped", "unreadable", "environments"}
 env = {e["name"]: e for e in d["environments"]}
 assert list(env) == ["jsonother", "jsonproj"], list(env)
 a = env["jsonproj"]
@@ -984,8 +1030,9 @@ out=$(env -i PROJ_SITE_CONFIG="$timer/nosite.toml" PROJ_CONFIG=/nonexistent "$ro
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$timer/shared"; failed_cleanly "unreadable shared registry"; chmod 755 "$timer/shared"
   chmod 000 "$timer/shared/ledger"
-  out=$(timer_cmd 2>/dev/null) || fail "unreadable entry should be counted, not fatal"
-  printf '%s' "$out" | /usr/bin/python3 -I -c 'import json,sys; assert json.load(sys.stdin)["skipped"] == 1' || fail "unreadable entry not counted as skipped"
+  out=$(timer_cmd 2>"$tmp/timer-unreadable-stderr") || fail "unreadable entry should be counted, not fatal"
+  printf '%s' "$out" | /usr/bin/python3 -I -c 'import json,sys; d = json.load(sys.stdin); assert (d["skipped"], d["unreadable"]) == (0, 1), d' || fail "unreadable entry not counted as unreadable"
+  [ ! -s "$tmp/timer-unreadable-stderr" ] || fail "an unreadable entry must not be reported one by one in JSON mode"
   chmod 755 "$timer/shared/ledger"
 fi
 pass "list --json for a service: stdout only, no HOME or Lmod, clean failure"

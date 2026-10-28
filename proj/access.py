@@ -12,10 +12,19 @@ from .config import Config
 from .errors import ProjError
 from .metadata import Project
 
-# Owner-only and group-writable shared environments. The setgid bit keeps the
-# registry group on every file created beneath the directory.
-SHARED_DIR_MODES = {False: 0o2755, True: 0o2775}
-SHARED_FILE_MODES = {False: 0o644, True: 0o664}
+# What a shared environment lets people do. Everyone who reaches the registry
+# may read an "owner" or "group-writable" one; a "private" one is limited to
+# its group, whose members may also change it. The setgid bit keeps the
+# environment's group on every file created beneath the directory.
+LEVELS = ("owner", "group-writable", "private")
+SHARED_DIR_MODES = {"owner": 0o2755, "group-writable": 0o2775, "private": 0o2770}
+SHARED_FILE_MODES = {"owner": 0o644, "group-writable": 0o664, "private": 0o660}
+
+
+def level_for(group_writable: bool = False, private: bool = False) -> str:
+    if group_writable and private:
+        raise ProjError("--group-writable and --private cannot be combined")
+    return "private" if private else "group-writable" if group_writable else "owner"
 
 
 def owner_name(path: Path) -> str:
@@ -52,12 +61,32 @@ def group_writable(project: Project) -> bool:
     return bool(project.metadata_path.parent.stat().st_mode & stat.S_IWGRP)
 
 
+def level_of(project: Project) -> str:
+    """The access a shared environment's directory currently gives."""
+    mode = project.metadata_path.parent.stat().st_mode
+    if not mode & stat.S_IROTH:
+        return "private"
+    return "group-writable" if mode & stat.S_IWGRP else "owner"
+
+
+def group_name(path: Path) -> str:
+    gid = path.stat().st_gid
+    try:
+        return grp.getgrgid(gid).gr_name
+    except KeyError:
+        return str(gid)
+
+
 def describe_scope(config: Config, project: Project) -> str:
     kind = scope(config, project)
     if kind != "shared":
         return kind
-    editors = "group" if group_writable(project) else "owner"
-    return f"shared (group {config.group}, editable by {editors})"
+    group = group_name(project.metadata_path.parent)
+    level = level_of(project)
+    if level == "private":
+        return f"shared (group {group} only)"
+    editors = "group" if level == "group-writable" else "owner"
+    return f"shared (group {group}, editable by {editors})"
 
 
 def require_writable(project: Project) -> None:
@@ -102,10 +131,29 @@ def shared_registry(config: Config) -> Path:
     return registry
 
 
-def prepare_shared_directory(config: Config, directory: Path, writable: bool) -> int:
+def environment_group_id(config: Config, requested: str | None) -> int:
+    """The group an environment will belong to: the one asked for, which the
+    caller must be in (the system allows nothing else), or the registry's."""
+    if not requested:
+        return group_id(config)
+    try:
+        gid = grp.getgrnam(requested).gr_gid
+    except KeyError as exc:
+        raise ProjError(f"group {requested!r} does not exist") from exc
+    if os.getuid() != 0 and gid != os.getgid() and gid not in os.getgroups():
+        raise ProjError(
+            f"you are not a member of group {requested!r}, so you cannot give it an environment"
+        )
+    return gid
+
+
+def prepare_shared_directory(
+    config: Config, directory: Path, level: str, group: str | None = None
+) -> int:
     """Create (or reuse, after `proj remove --keep-files`) a shared environment
     directory and return its file mode."""
+    gid = environment_group_id(config, group)
     directory.mkdir(exist_ok=True)
-    os.chown(directory, -1, group_id(config))
-    os.chmod(directory, SHARED_DIR_MODES[writable])
-    return SHARED_FILE_MODES[writable]
+    os.chown(directory, -1, gid)
+    os.chmod(directory, SHARED_DIR_MODES[level])
+    return SHARED_FILE_MODES[level]

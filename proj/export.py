@@ -102,6 +102,7 @@ def environments_snapshot(
     scope: str = "all",
     under: Iterable[str] = (),
     scope_of: Callable[[Config, Project], str] | None = None,
+    unreadable: int = 0,
 ) -> dict:
     """The registered environments in a stable, publishable form.
 
@@ -110,7 +111,9 @@ def environments_snapshot(
     of the project category, names only), its other modules with versions (null
     when the module's default decides), the names of library modules kept apart
     in `library_bundles`, the linked Python environment when there is one, and
-    when its metadata last changed.
+    when its metadata last changed. `skipped` counts invalid documents;
+    `unreadable` counts environments this person has no permission to read
+    (limited to a group they are not in), which is normal and never named.
     """
     from . import access
 
@@ -150,6 +153,7 @@ def environments_snapshot(
         "proj_version": __version__,
         "generated": utc(),
         "skipped": skipped,
+        "unreadable": unreadable,
         "environments": environments,
     }
 

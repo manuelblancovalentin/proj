@@ -66,6 +66,20 @@ def _environment_rows(config: Config, projects) -> list[tuple[str, ...]]:
 NO_ENVIRONMENTS = "No environments yet. In a project directory, run: proj create <name>"
 
 
+def _report_skipped(found, quiet_unreadable: bool = False) -> None:
+    """Name each invalid environment, but sum up the ones this person may not read.
+
+    A shared environment limited to another group is expected, so it gets one
+    line and no names (JSON carries the count in the document instead).
+    """
+    for _path, problem in found.problems:
+        print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
+    count = len(found.unreadable)
+    if count and not quiet_unreadable:
+        noun = "environment" if count == 1 else "environments"
+        print(f"proj: {count} {noun} you have no permission to read not shown", file=sys.stderr)
+
+
 def cmd_list(config: Config, args: argparse.Namespace) -> int:
     if args.json:
         export.check_registries(config, args.scope)
@@ -76,11 +90,11 @@ def cmd_list(config: Config, args: argparse.Namespace) -> int:
             config, project_roots=tuple(r for r in config.project_roots if r != config.registry)
         )
     found = scan(config, strict=args.json)
-    for _path, problem in found.problems:
-        print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
+    _report_skipped(found, quiet_unreadable=args.json)
     if args.json:
         document = export.environments_snapshot(
-            config, found.projects.values(), len(found.problems), args.scope, args.under
+            config, found.projects.values(), len(found.problems), args.scope, args.under,
+            unreadable=len(found.unreadable),
         )
         print(json.dumps(document, indent=2))
         return 0
@@ -246,8 +260,7 @@ def cmd_overview(config: Config) -> int:
         )
     else:
         print(NO_ENVIRONMENTS)
-    for _path, problem in found.problems:
-        print(f"proj: skipped invalid environment: {problem}", file=sys.stderr)
+    _report_skipped(found)
     print()
     try:
         _print_catalog(config, None, False)
@@ -309,8 +322,14 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
     root = Path(args.root or os.getcwd()).expanduser().resolve()
     if not root.is_dir():
         raise ProjError(f"project root does not exist: {root}")
-    if args.group_writable and not args.shared:
-        raise ProjError("--group-writable requires --shared")
+    for flag, given in (
+        ("--group-writable", args.group_writable),
+        ("--private", args.private),
+        ("--group", args.group),
+    ):
+        if given and not args.shared:
+            raise ProjError(f"{flag} requires --shared")
+    level = access.level_for(args.group_writable, args.private)
     existing = discover(config).get(args.name)
     if existing:
         raise ProjError(
@@ -324,7 +343,7 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         if metadata_path.exists():
             raise ProjError(f"environment {args.name!r} already exists at {metadata_path}")
         mode = access.prepare_shared_directory(
-            config, metadata_path.parent, args.group_writable
+            config, metadata_path.parent, level, args.group
         )
     else:
         metadata_path = config.registry / args.name / "project.toml"
@@ -336,9 +355,11 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
                 set_dotted(document, f"modules.{category}", initial.modules[category])
         write_document(metadata_path, document)
     # Validate the generated document before reporting success.
-    load_project(metadata_path)
+    project = load_project(metadata_path)
     print(f"Environment {args.name!r} successfully created.")
     print(f"Metadata and configuration present at {metadata_path}")
+    if args.shared:
+        print(f"Scope: {access.describe_scope(config, project)}")
     if initial:
         used = [spec for category in MODULE_CATEGORIES for spec in initial.modules[category]]
         print(f"Uses: {', '.join(used)}")
@@ -347,11 +368,32 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_share(config: Config, args: argparse.Namespace) -> int:
-    document = sharing.share(config, args.name, args.group_writable)
-    editors = "every group member" if args.group_writable else "its creator"
-    print(f"Environment {args.name!r} is now shared with group {config.group} (editable by {editors}).")
+    level = access.level_for(args.group_writable, args.private)
+    document = sharing.share(config, args.name, level, args.group)
+    group = access.group_name(document.parent)
+    if level == "private":
+        who = f"group {group} only"
+    else:
+        who = f"group {group} (editable by {'every group member' if level == 'group-writable' else 'its creator'})"
+    print(f"Environment {args.name!r} is now shared with {who}.")
     print(f"Metadata and configuration present at {document}")
     print("Members who activate it run its hooks and aliases as themselves.")
+    return 0
+
+
+def cmd_access(config: Config, args: argparse.Namespace) -> int:
+    level = "owner" if args.owner_only else "group-writable" if args.group_writable else "private" if args.private else None
+    directory, before, after = sharing.change_access(config, args.name, level)
+    group = access.group_name(directory)
+    meaning = {
+        "owner": "everyone with access to the registry can read it; only its creator can change it",
+        "group-writable": f"everyone with access to the registry can read it; group {group} can change it",
+        "private": f"only group {group} can see and change it",
+    }
+    if level is None or before == after:
+        print(f"Environment {args.name!r}: {after} ({meaning[after]}).")
+    else:
+        print(f"Environment {args.name!r}: {before} -> {after} ({meaning[after]}).")
     return 0
 
 
@@ -1034,6 +1076,19 @@ def cmd_shell(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_access_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--group-writable",
+        action="store_true",
+        help="let every group member change a shared environment",
+    )
+    parser.add_argument(
+        "--private",
+        action="store_true",
+        help="visible to the group only (group members can change it)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="proj")
     parser.add_argument("--version", action="version", version=f"proj {__version__}")
@@ -1095,18 +1150,26 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--shared", action="store_true", help="create in the shared group registry"
     )
+    _add_access_options(create)
     create.add_argument(
-        "--group-writable",
-        action="store_true",
-        help="let every group member change a shared environment",
+        "--group",
+        metavar="GROUP",
+        help="with --shared, give the environment to this group instead of the registry's",
     )
     share = sub.add_parser("share", help="move a private environment to the shared registry")
     share.add_argument("name")
+    _add_access_options(share)
     share.add_argument(
-        "--group-writable",
-        action="store_true",
-        help="let every group member change it",
+        "--group",
+        metavar="GROUP",
+        help="give the environment to this group instead of the registry's",
     )
+    access_parser = sub.add_parser("access", help="show or change who can see and change a shared environment")
+    access_parser.add_argument("name")
+    setting = access_parser.add_mutually_exclusive_group()
+    setting.add_argument("--owner-only", action="store_true", help="everyone reads, only its creator changes (the default)")
+    setting.add_argument("--group-writable", action="store_true", help="everyone reads, its group changes")
+    setting.add_argument("--private", action="store_true", help="only its group sees and changes it")
     unshare = sub.add_parser("unshare", help="move a shared environment you created back to private")
     unshare.add_argument("name")
     unshare.add_argument(
@@ -1257,6 +1320,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_share(config, args)
         if args.command == "unshare":
             return cmd_unshare(config, args)
+        if args.command == "access":
+            return cmd_access(config, args)
         if args.command == "config":
             return cmd_config(config, args)
         if args.command == "python-env" and args.python_env_command == "list":
