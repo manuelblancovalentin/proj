@@ -657,6 +657,32 @@ assert d["unreadable"] == 2 and d["skipped"] == 0 and not any(e["name"].startswi
   share_env info hide-a >/dev/null 2>&1 && fail "info of an unreadable environment"
   chmod 770 "$shared_registry/hide-a" "$shared_registry/hide-b"
 fi
+# A shared environment shows its creator and group; a project folder the person cannot enter
+# is summed up like an unreadable environment, without printing its path.
+share_env list | grep -Eq "^lent2? +shared +$(id -un):[^ ]+ " || fail "list shows user:group for a shared environment"
+share_env info | grep -Eq "(^| )$(id -un):[^ ]+ " || fail "info overview shows user:group"
+share_env access lent2 | grep -q "(group " || fail "access names the group"
+if [ "$(id -u)" != 0 ]; then
+  mkdir -p "$tmp/work/gate/secret-folder"
+  share_env create walled --shared --root "$tmp/work/gate/secret-folder" >/dev/null || fail "walled fixture"
+  chmod 000 "$tmp/work/gate"
+  share_env list >"$tmp/walled-out" 2>"$tmp/walled-err" || { chmod 755 "$tmp/work/gate"; fail "list with a walled project folder"; }
+  chmod 755 "$tmp/work/gate"
+  [ "$(cat "$tmp/walled-err")" = "proj: 1 environment you have no permission to read not shown" ] ||
+    fail "a walled project folder must give the one summary line: $(cat "$tmp/walled-err")"
+  grep -q "secret-folder\|walled" "$tmp/walled-out" "$tmp/walled-err" && fail "a walled environment was named or its path printed"
+fi
+# project.root may be a link; it is stored and shown as written, while the JSON reports where it resolves.
+mkdir -p "$tmp/work/linked-real"; ln -sfn "$tmp/work/linked-real" "$tmp/work/linked-link"
+share_env create linked --root "$tmp/work/linked-real" >/dev/null || fail "link fixture"
+share_env config --env linked project.root="$tmp/work/linked-link" >/dev/null || fail "config project.root with a link"
+grep -qF "root = \"$tmp/work/linked-link\"" "$install_home/.proj/envs/linked/project.toml" || fail "project.root must be stored as written"
+share_env list | grep -qF "$tmp/work/linked-link" || fail "list must show the link as written"
+share_env list --json | /usr/bin/python3 -I -c '
+import json, os, sys
+env = {e["name"]: e for e in json.load(sys.stdin)["environments"]}
+assert env["linked"]["project_root"] == os.path.realpath(sys.argv[1]), env["linked"]
+' "$tmp/work/linked-link" || fail "list --json must report the resolved folder"
 pass "environments can belong to another group, be limited to it, and unreadable ones are summed up"
 
 remove_env() {

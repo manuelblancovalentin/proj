@@ -121,7 +121,8 @@ activation.
   (`2755`/`644`), group-writable (`2775`/`664`), or private to its group
   (`2770`/`660`); `proj access` shows or changes the level and only the creator
   may. Discovery counts an environment the person has no permission to read
-  (`Discovery.unreadable`) and never names it: `proj list` sums them up in one
+  (`Discovery.unreadable`; also a project folder it cannot enter, raised as
+  `AccessDenied`, with no path printed) and never names it: `proj list` sums them up in one
   line on stderr, `proj list --json` reports the count as `unreadable` (and
   `skipped` stays for invalid documents).
 - Precedence is private, shared, then extra roots; a private environment
@@ -134,6 +135,9 @@ activation.
   environment active in this shell, and `unshare` also refuses while a process
   it can read (`/proc/*/environ`) carries `PROJ_ACTIVE=<name>`, unless `--force`;
   that is a best-effort signal, since active state is shell-local.
+- `project.root` is shown and used for `cd`, `PROJ_ROOT` and `${project.root}`
+  as written when it is a plain absolute path (it may be a link, `Project.visible_root`);
+  checks and `list --json` use the resolved folder (`Project.root`).
 - `--env` is the canonical explicit environment selector. Keep `--project` as
   a compatibility alias unless a deliberate breaking migration removes it.
 - Shell initialization must never activate an environment. Only an explicit

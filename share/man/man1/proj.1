@@ -81,7 +81,9 @@ destination and removes the old one last, so a failure leaves the environment
 where it was.
 .TP
 .BR "proj list " "[--json] [--scope all|shared|private] [--under " dir "]..."
-List registered project environments with their scope and owner. A private
+List registered project environments with their scope and owner (for a shared
+environment, user:group). An environment whose project folder you cannot enter
+counts with the ones you cannot read. A private
 environment shadows a shared one with the same name. Invalid documents are
 reported and skipped; shared environments you have no permission to read (limited
 to another group) are left out and counted in one line.

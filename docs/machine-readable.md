@@ -103,7 +103,8 @@ the shared registry (`proj create ... --shared`) and its folder is under `DIR`.
 * `name`, `scope` (`private`, `shared`, or `external` for an extra metadata
   root), and `updated` (when the environment's metadata last changed, UTC).
 * `project_root` is the project folder the environment belongs to, as an
-  absolute path with symbolic links resolved. **Compare it with the resolved
+  absolute path with symbolic links resolved (even when the metadata, and so
+  `proj list`, shows a link). **Compare it with the resolved
   path of the project's folder** (`realpath`), because the same folder can be
   reached through several mount aliases.
 * `bundles`: the environment's modules of the `project` category, by name only.

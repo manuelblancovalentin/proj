@@ -17,7 +17,7 @@ def activation_code(config: Config, project: Project) -> str:
     materialize(config, project)
     values = (
         project.name,
-        project.root,
+        project.visible_root,
         project.module_name,
         config.module_cache,
         project.python_environment or "",

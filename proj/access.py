@@ -41,6 +41,18 @@ def project_owner(project: Project) -> str:
     return owner_name(project.metadata_path.parent)
 
 
+def owner_label(config: Config, project: Project) -> str:
+    """The creator, and for a shared environment the group it belongs to (user:group).
+
+    A shared environment is the group's project, so the creator alone would read
+    as if one person owned it. A private one has no group worth naming.
+    """
+    owner = project_owner(project)
+    if scope(config, project) != "shared":
+        return owner
+    return f"{owner}:{group_name(project.metadata_path.parent)}"
+
+
 def current_user() -> str:
     try:
         return pwd.getpwuid(os.getuid()).pw_name

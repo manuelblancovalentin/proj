@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .errors import MetadataError
+from .errors import AccessDenied, MetadataError
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 ENVIRONMENT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -43,6 +43,10 @@ class Project:
     root: Path
     shell: str
     metadata_path: Path
+    # The project folder as the metadata writes it when that is a plain absolute
+    # path (it may be a symbolic link); `root` is where it resolves, and is what
+    # checks and comparisons use. People are shown and moved to the written path.
+    shown_root: Path | None = None
     python_manager: str | None = None
     python_environment: str | None = None
     modules: dict[str, tuple[str, ...]] = field(default_factory=dict)
@@ -54,13 +58,17 @@ class Project:
     commands: dict[str, Command] = field(default_factory=dict)
 
     @property
+    def visible_root(self) -> Path:
+        return self.shown_root or self.root
+
+    @property
     def module_name(self) -> str:
         return f"project/{self.name}"
 
     def context(self) -> dict[str, str]:
         return {
             "project.name": self.name,
-            "project.root": str(self.root),
+            "project.root": str(self.visible_root),
             "project.metadata": str(self.metadata_path),
             "user.home": str(Path.home()),
         }
@@ -147,7 +155,16 @@ def load_project(metadata_path: Path) -> Project:
         raise MetadataError(f"{metadata_path}: invalid project name {name!r}")
     description = _string(project_data, "description", metadata_path) or name
     raw_root = _string(project_data, "root", metadata_path, required=True)
-    root = Path(os.path.expanduser(raw_root)).resolve()
+    written = Path(os.path.expanduser(raw_root))
+    try:
+        root = written.resolve()
+        os.stat(root)
+    except PermissionError as exc:
+        # The folder may be private to a group the person is not in: not an error
+        # to report (and its path stays out of the message).
+        raise AccessDenied(f"{metadata_path}: no permission to read the project root") from exc
+    except OSError:
+        pass  # does not exist: the check below says so
     if not root.is_dir():
         raise MetadataError(f"{metadata_path}: project root does not exist: {root}")
     shell = _string(project_data, "shell", metadata_path) or "zsh"
@@ -234,6 +251,7 @@ def load_project(metadata_path: Path) -> Project:
         root=root,
         shell=shell,
         metadata_path=metadata_path,
+        shown_root=written if written.is_absolute() and ".." not in written.parts else None,
         python_manager=python_manager,
         python_environment=python_environment,
         modules=modules,

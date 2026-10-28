@@ -49,7 +49,7 @@ class MenuState:
         return [
             ("Name", self.name),
             ("Scope", access.describe_scope(self.config, self.project)),
-            ("Owner", access.project_owner(self.project)),
+            ("Owner", access.owner_label(self.config, self.project)),
             ("Metadata", str(self.project.metadata_path)),
             ("Active here", "yes" if active else "no"),
         ]

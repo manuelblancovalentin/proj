@@ -57,6 +57,19 @@ command = ["./scripts/build"]
 `python.environment` is an environment name or an absolute prefix path; shared environments store the
 prefix so that every member resolves the same environment.
 
+`project.root` is kept exactly as written when it is an absolute path without
+`..`, and it may be a symbolic link (for example a stable `/projects/atlas`
+pointing into a folder you would rather not show). `proj list`, `proj info`,
+`proj status`, `${project.root}`, `PROJ_ROOT` and the directory proj changes to
+on activation all use the path as written, so people see the link, not its
+target. proj still resolves the link every time it loads the metadata, and uses
+where it resolves for its checks (a `paths.prepend` entry must stay inside the
+real folder) and for `proj list --json`, whose `project_root` is the resolved
+folder. A path that cannot be entered by the person running proj (a folder private to
+a group they are not in) makes the environment count as one they cannot read.
+`proj create` still records the resolved folder; set a link with
+`proj config --env NAME project.root /projects/atlas`.
+
 Only `project.name` and `project.root` are required. Description defaults to
 the name, shell defaults to Zsh, and the managed starter records the
 configured Python manager without selecting an environment.

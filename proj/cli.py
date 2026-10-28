@@ -55,9 +55,9 @@ def _environment_rows(config: Config, projects) -> list[tuple[str, ...]]:
         (
             project.name,
             access.scope(config, project),
-            access.project_owner(project),
+            access.owner_label(config, project),
             project.description,
-            str(project.root),
+            str(project.visible_root),
         )
         for project in sorted(projects, key=lambda item: item.name)
     ]
@@ -390,10 +390,8 @@ def cmd_access(config: Config, args: argparse.Namespace) -> int:
         "group-writable": f"everyone with access to the registry can read it; group {group} can change it",
         "private": f"only group {group} can see and change it",
     }
-    if level is None or before == after:
-        print(f"Environment {args.name!r}: {after} ({meaning[after]}).")
-    else:
-        print(f"Environment {args.name!r}: {before} -> {after} ({meaning[after]}).")
+    change = after if level is None or before == after else f"{before} -> {after}"
+    print(f"Environment {args.name!r} (group {group}): {change} ({meaning[after]}).")
     return 0
 
 
@@ -417,8 +415,8 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
     rows = [
         ("Description", project.description),
         ("Scope", access.describe_scope(config, project)),
-        ("Owner", access.project_owner(project)),
-        ("Root", str(project.root)),
+        ("Owner", access.owner_label(config, project)),
+        ("Root", str(project.visible_root)),
         ("Metadata", str(project.metadata_path)),
         ("Shell", project.shell),
         ("Python manager", python_envs.manager_for(config, project)),
@@ -611,7 +609,7 @@ def cmd_status(config: Config, _args: argparse.Namespace) -> int:
             f"expected {project.python_environment}"
         )
     print(f"Project:      {project.name}")
-    print(f"Root:         {project.root}")
+    print(f"Root:         {project.visible_root}")
     print(f"Metadata:     {project.metadata_path}")
     print(f"Lmod module:  {project.module_name}")
     print(f"Python env:   {_python_label(config, project)}")
@@ -649,7 +647,7 @@ def cmd_env_show(config: Config, args: argparse.Namespace) -> int:
     output, changed = materialize(config, project)
     print(f"Name:          {project.name}")
     print(f"Description:   {project.description}")
-    print(f"Root:          {project.root}")
+    print(f"Root:          {project.visible_root}")
     print(f"Metadata:      {project.metadata_path}")
     print(f"Shell:         {project.shell}")
     print(f"Modulefile:    {output} ({'generated' if changed else 'current'})")
@@ -767,9 +765,9 @@ def cmd_remove(config: Config, args: argparse.Namespace) -> int:
     )
     extra = [*others, *generated]
 
-    print(f"Environment:   {name} ({access.describe_scope(config, project)}, owner {owner})")
+    print(f"Environment:   {name} ({access.describe_scope(config, project)}, owner {access.owner_label(config, project)})")
     print(f"Metadata:      {project.metadata_path}")
-    print(f"Project root:  {project.root} (kept)")
+    print(f"Project root:  {project.visible_root} (kept)")
     if project.python_environment:
         print(f"Python env:    {_python_label(config, project)} (kept)")
 
@@ -979,7 +977,7 @@ def cmd_hook(config: Config, args: argparse.Namespace) -> int:
     hooks = project.startup_hooks if args.phase == "startup" else project.shutdown_hooks
     for hook in hooks:
         argv = [project.expand(value) for value in hook.argv]
-        completed = subprocess.run(argv, cwd=project.root, check=False)
+        completed = subprocess.run(argv, cwd=project.visible_root, check=False)
         if completed.returncode:
             return completed.returncode
     return 0

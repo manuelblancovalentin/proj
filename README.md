@@ -321,7 +321,7 @@ active environment. Changes to an active environment take effect after
 ```sh
 proj create <name>                 # register the current directory
 proj create <name> --root DIR      # register another directory
-proj list                          # NAME, SCOPE, OWNER, DESCRIPTION, ROOT
+proj list                          # NAME, SCOPE, OWNER (user:group when shared), DESCRIPTION, ROOT
 proj avail [category|name]         # modules Lmod can load, grouped by category
 proj info                          # overview: environments and available modules
 proj info --env <name>             # every effective setting of one environment
@@ -766,8 +766,10 @@ activates the same one regardless of their own conda settings.
   `--group GROUP`, a group you are in. Its members also need access to the
   registry itself, which is the registry's group: the registry is the outer
   gate, the environment's group the inner one.
-- `proj list` leaves out shared environments you have no permission to read
-  and says how many in one line; `proj list --json` counts them in
+- `proj list` shows `user:group` as the owner of a shared environment, since
+  it belongs to its group. It leaves out shared environments you have no
+  permission to read, and those whose project folder you cannot enter, and says
+  how many in one line (never their names or paths); `proj list --json` counts them in
   `unreadable` and prints nothing about them.
 - `proj config` on an environment you cannot change fails with
   `environment 'atlas' belongs to alice`.

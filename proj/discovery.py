@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
-from .errors import ProjError
+from .errors import AccessDenied, ProjError
 from .metadata import Project, load_project
 
 
@@ -69,6 +69,9 @@ def scan(config: Config, strict: bool = False) -> Discovery:
         for metadata_path in _metadata_files(root, strict, result):
             try:
                 project = load_project(metadata_path)
+            except AccessDenied:
+                result.unreadable.append(metadata_path)
+                continue
             except (ProjError, OSError) as exc:
                 result.problems.append((metadata_path, str(exc)))
                 continue

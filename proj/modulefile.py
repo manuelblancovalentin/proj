@@ -31,7 +31,7 @@ def render(project: Project) -> str:
     lines.extend(
         [
             f"setenv(\"PROJ_ACTIVE\", {_lua(project.name)})",
-            f"setenv(\"PROJ_ROOT\", {_lua(str(project.root))})",
+            f"setenv(\"PROJ_ROOT\", {_lua(str(project.visible_root))})",
             f"setenv(\"PROJ_METADATA\", {_lua(str(project.metadata_path))})",
             f"setenv(\"PROJ_MODULE\", {_lua(project.module_name)})",
         ]
