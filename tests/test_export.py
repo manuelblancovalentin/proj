@@ -77,6 +77,39 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual([e["name"] for e in document["environments"]], ["atlas", "birch"])
         json.dumps(document)  # serialisable
 
+    def link(self, name, value, manager=None):
+        path = self.home / "envs" / name / "project.toml"
+        data = load_document(path)
+        set_dotted(data, "python.environment", value)
+        if manager:
+            set_dotted(data, "python.manager", manager)
+        write_document(path, data)
+
+    def test_python_is_left_out_when_no_environment_is_linked(self):
+        for environment in self.snapshot()["environments"]:
+            self.assertNotIn("python", environment)
+        self.assertEqual(SCHEMA, 1)
+
+    def test_python_reports_what_the_metadata_says_and_nothing_more(self):
+        real = Path(self.temp.name) / "mamba" / "envs" / "lab-env"  # does not exist: nothing is read
+        alias = Path(self.temp.name) / "alias"
+        alias.symlink_to(real)
+        self.link("atlas", str(alias))
+        self.link("birch", "lab-name", manager="conda")
+        with patch("proj.python_envs.subprocess.run", side_effect=AssertionError("ran a manager")):
+            found = {e["name"]: e for e in self.snapshot()["environments"]}
+        self.assertEqual(
+            found["atlas"]["python"],
+            {"manager": "micromamba", "environment": "lab-env", "prefix": str(real.resolve())},
+        )
+        self.assertEqual(found["birch"]["python"], {"manager": "conda", "environment": "lab-name"})
+        self.assertEqual(
+            list(found["atlas"]),
+            ["name", "scope", "project_root", "bundles", "modules", "library_bundles", "python", "updated"],
+        )
+        self.assertEqual(self.snapshot()["schema"], 1)
+        json.dumps(found)
+
     def test_bundles_modules_and_library_names_are_kept_apart(self):
         atlas = self.snapshot()["environments"][0]
         self.assertEqual(atlas["bundles"], ["site-defaults"])

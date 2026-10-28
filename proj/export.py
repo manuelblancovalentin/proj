@@ -1,7 +1,8 @@
 """Machine-readable documents: the environment snapshot and the module catalogue.
 
 Both are meant for other programs (the website, `kona init`), so their keys are
-stable and carry a `schema` number that only grows. Neither contains paths of
+stable and carry a `schema` number that only grows (an optional key may be added
+without raising it). Neither contains paths of
 protected libraries, library versions, or user names: library modules are
 recognised by the configured name prefixes and exact names and are kept out of
 the ordinary lists.
@@ -10,10 +11,11 @@ the ordinary lists.
 from __future__ import annotations
 
 import datetime
+import os
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import __version__, uses
+from . import __version__, python_envs, uses
 from .config import Config
 from .errors import ProjError
 from .lmod import CATEGORIES, ModuleEntry
@@ -73,6 +75,26 @@ def select_projects(
     return chosen
 
 
+def _python(config: Config, project: Project) -> dict | None:
+    """The linked Python environment, as the metadata states it, or None.
+
+    Nothing is run or read inside the environment. A path in the metadata gives
+    its resolved prefix and its last component as the name; a bare name is
+    only a name, because turning it into a prefix would mean asking the manager.
+    """
+    value = project.python_environment
+    if not value:
+        return None
+    python = {"manager": python_envs.manager_for(config, project)}
+    if os.path.isabs(value):
+        prefix = Path(value).resolve()
+        python["environment"] = prefix.name
+        python["prefix"] = str(prefix)
+    else:
+        python["environment"] = value
+    return python
+
+
 def environments_snapshot(
     config: Config,
     projects: Iterable[Project],
@@ -87,7 +109,8 @@ def environments_snapshot(
     (resolved, so compare with a resolved path), the bundles it uses (modules
     of the project category, names only), its other modules with versions (null
     when the module's default decides), the names of library modules kept apart
-    in `library_bundles`, and when its metadata last changed.
+    in `library_bundles`, the linked Python environment when there is one, and
+    when its metadata last changed.
     """
     from . import access
 
@@ -109,17 +132,19 @@ def environments_snapshot(
                         bundles.append(name)
                 else:
                     modules.append({"name": name, "version": version or None})
-        environments.append(
-            {
-                "name": project.name,
-                "scope": kind,
-                "project_root": str(project.root),
-                "bundles": bundles,
-                "modules": modules,
-                "library_bundles": libraries,
-                "updated": utc(project.metadata_path.stat().st_mtime),
-            }
-        )
+        item = {
+            "name": project.name,
+            "scope": kind,
+            "project_root": str(project.root),
+            "bundles": bundles,
+            "modules": modules,
+            "library_bundles": libraries,
+        }
+        python = _python(config, project)
+        if python:
+            item["python"] = python
+        item["updated"] = utc(project.metadata_path.stat().st_mtime)
+        environments.append(item)
     return {
         "schema": SCHEMA,
         "proj_version": __version__,

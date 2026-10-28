@@ -918,6 +918,17 @@ assert a["modules"] == [{"name": "simtool", "version": None}, {"name": "suite-la
 assert a["scope"] == "private" and a["project_root"].endswith("/jsonproj") and a["updated"].endswith("Z")
 ' || fail "list --json content"
 printf '%s' "$snapshot" | grep -q '3\.1' && fail "list --json leaked a library version"
+# A linked Python environment is reported from the metadata alone: the resolved prefix and its name.
+mkdir -p "$tmp/pyreal/envs/lab-env"; ln -s "$tmp/pyreal/envs/lab-env" "$tmp/pylink"
+json_proj config --env jsonproj python.environment="$tmp/pylink" >/dev/null || fail "python link fixture"
+json_proj config --env jsonother python.environment=lab-name >/dev/null || fail "python name fixture"
+pyreal=$(cd "$tmp/pyreal/envs/lab-env" && pwd -P)
+json_proj list --json | PYREAL=$pyreal /usr/bin/python3 -I -c '
+import json, os, sys
+env = {e["name"]: e for e in json.load(sys.stdin)["environments"]}
+assert env["jsonproj"]["python"] == {"manager": "micromamba", "environment": "lab-env", "prefix": os.environ["PYREAL"]}, env["jsonproj"]
+assert env["jsonother"]["python"] == {"manager": "micromamba", "environment": "lab-name"}, env["jsonother"]
+' || fail "list --json python object"
 printf '%s' "$snapshot" | grep -q "$(id -un)" && fail "list --json leaked a user name"
 # With no shared registry configured, --scope shared is an error, never an empty list.
 json_proj list --json --scope shared >"$tmp/json-shared" 2>/dev/null && fail "list --json --scope shared without a shared registry"

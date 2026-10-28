@@ -73,8 +73,11 @@ activation.
   repository and ref live in `PREFIX/etc/source.toml`; `PROJ_UPGRADE_BASE`
   replaces the host for tests.
 - Machine-readable output (`proj list --json`, `proj catalog`) is read-only,
-  carries a `schema` number that grows with any key change, and never contains
-  library paths, library versions, or user names. Libraries are recognised by
+  carries a `schema` number that grows when a key is removed, renamed or
+  changes meaning (an optional key may be added without raising it), and never
+  contains library paths, library versions, or user names. Its only paths are
+  `project_root` and the optional `python.prefix`, both taken from metadata
+  without looking inside (the environment is never run or read). Libraries are recognised by
   module name (`library_prefixes`, `pdk-` by default, and `library_names`) and are left out
   of ordinary lists, only counted or named apart. Nothing about a library
   tree is read to build either document. The format is in

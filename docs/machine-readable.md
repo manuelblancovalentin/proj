@@ -2,11 +2,13 @@
 
 Two commands print one JSON document for other programs, such as a website or a
 login tool. Both are read-only, their keys are stable, and each carries a
-`schema` number that only grows (a new key raises it). All names below are
-invented.
+`schema` number that only grows: removing or renaming a key, or changing what
+one means, raises it; adding an optional key does not, so a consumer must ignore
+keys it does not know. All names below are invented.
 
 Neither document ever contains the path of a library, a library version, or a
-user name. Protected libraries are recognised by module **name**, set in the
+user name (no owner field). The only paths are an environment's `project_root`
+and its Python `prefix`, both taken from its metadata. Protected libraries are recognised by module **name**, set in the
 site configuration (`PREFIX/etc/config.toml`): a prefix list, `pdk-` by
 default, and an exact-name list for libraries that do not follow the prefix:
 
@@ -72,7 +74,21 @@ the shared registry (`proj create ... --shared`) and its folder is under `DIR`.
         {"name": "gcc", "version": "13.3.0"}
       ],
       "library_bundles": ["pdk-example"],
+      "python": {
+        "manager": "micromamba",
+        "environment": "atlas-env",
+        "prefix": "/projects/envs/atlas-env"
+      },
       "updated": "2026-10-26T09:14:51Z"
+    },
+    {
+      "name": "birch",
+      "scope": "shared",
+      "project_root": "/projects/birch",
+      "bundles": [],
+      "modules": [{"name": "node", "version": "24.21.0"}],
+      "library_bundles": [],
+      "updated": "2026-10-25T16:02:10Z"
     }
   ]
 }
@@ -89,6 +105,16 @@ the shared registry (`proj create ... --shared`) and its folder is under `DIR`.
   module's own default decides at load time.
 * `library_bundles`: names of library modules (any category), kept apart so a
   consumer can drop them. Versions are never printed.
+* `python` (optional): the conda-family environment linked with
+  `proj set-python-env`; the key is **absent** when none is linked. `manager` is
+  `micromamba`, `conda` or `mamba`. `environment` is the environment's name.
+  `prefix` is its folder as an absolute path with symbolic links resolved, and
+  is present only when the metadata records a path (`proj set-python-env`
+  records one for a shared environment); when the metadata holds just a name, there is no
+  `prefix`, because turning a name into a folder would mean asking the manager,
+  and each person's manager may answer differently. Only the metadata is
+  reported: proj does not run the manager or look inside the folder, so the
+  prefix may not exist. Everywhere else proj shows the name alone.
 
 ### How a project folder is marked
 
