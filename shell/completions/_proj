@@ -53,6 +53,8 @@ commands=(
   'list:List registered projects'
   'activate:Activate a project environment'
   'deactivate:Deactivate the current project'
+  'share:Move a private environment to the shared registry'
+  'unshare:Move a shared environment you created back to private'
   'remove:Delete a project environment'
   'use:Use a library, suite, or tool in an environment'
   'unuse:Stop using a module in an environment'
@@ -112,6 +114,20 @@ case $words[2] in
     ;;
   upgrade)
     _values 'option' --check --yes --force --ref
+    ;;
+  share)
+    if (( CURRENT == 3 )); then
+      _proj_project_names
+    else
+      _values 'option' --group-writable
+    fi
+    ;;
+  unshare)
+    if (( CURRENT == 3 )); then
+      _proj_project_names
+    else
+      _values 'option' --force
+    fi
     ;;
   remove)
     if (( CURRENT == 3 )); then

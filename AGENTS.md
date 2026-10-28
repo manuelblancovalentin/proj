@@ -115,6 +115,14 @@ activation.
   one invalid document must not break discovery for others.
 - Precedence is private, shared, then extra roots; a private environment
   shadows a shared one with the same name.
+- `proj share`/`proj unshare` move an environment between your private and the
+  shared registry: the document is copied byte for byte (metadata unchanged),
+  built beside its destination and renamed into place with the document last,
+  and the old copy is removed only afterwards. `share` refuses a name the shared
+  registry has; `unshare` is for the directory's owner only. Neither moves the
+  environment active in this shell, and `unshare` also refuses while a process
+  it can read (`/proc/*/environ`) carries `PROJ_ACTIVE=<name>`, unless `--force`;
+  that is a best-effort signal, since active state is shell-local.
 - `--env` is the canonical explicit environment selector. Keep `--project` as
   a compatibility alias unless a deliberate breaking migration removes it.
 - Shell initialization must never activate an environment. Only an explicit

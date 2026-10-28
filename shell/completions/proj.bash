@@ -21,7 +21,7 @@ _proj_complete() {
   local IFS=$'\n'
 
   if (( COMP_CWORD == 1 )); then
-    candidates=$'create\nlist\navail\nuse\nunuse\nactivate\ndeactivate\nremove\nupgrade\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
+    candidates=$'create\nlist\navail\nuse\nunuse\nactivate\ndeactivate\nshare\nunshare\nremove\nupgrade\ncurrent\nstatus\ninfo\nconfig\nconfigmenu'
     candidates+=$'\nset-python-env\npython-env\nmodule\nenv\ndoctor\ninit\ninstall\n--version'
   elif [[ $prev == --env || $prev == --project ]]; then
     candidates=$(_proj_cli _complete projects 2>/dev/null)
@@ -63,6 +63,20 @@ _proj_complete() {
           candidates=$(_proj_cli _complete projects 2>/dev/null)
         else
           candidates=$'--yes\n--delete-files\n--keep-files'
+        fi
+        ;;
+      share)
+        if (( COMP_CWORD == 2 )); then
+          candidates=$(_proj_cli _complete projects 2>/dev/null)
+        else
+          candidates=--group-writable
+        fi
+        ;;
+      unshare)
+        if (( COMP_CWORD == 2 )); then
+          candidates=$(_proj_cli _complete projects 2>/dev/null)
+        else
+          candidates=--force
         fi
         ;;
       create)

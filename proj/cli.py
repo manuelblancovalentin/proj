@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, export, lmod, menu_runtime, python_envs, upgrade, uses
+from . import access, export, lmod, menu_runtime, python_envs, sharing, upgrade, uses
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -343,6 +343,22 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         used = [spec for category in MODULE_CATEGORIES for spec in initial.modules[category]]
         print(f"Uses: {', '.join(used)}")
     print(f"Activate it with: proj activate {args.name}")
+    return 0
+
+
+def cmd_share(config: Config, args: argparse.Namespace) -> int:
+    document = sharing.share(config, args.name, args.group_writable)
+    editors = "every group member" if args.group_writable else "its creator"
+    print(f"Environment {args.name!r} is now shared with group {config.group} (editable by {editors}).")
+    print(f"Metadata and configuration present at {document}")
+    print("Members who activate it run its hooks and aliases as themselves.")
+    return 0
+
+
+def cmd_unshare(config: Config, args: argparse.Namespace) -> int:
+    document = sharing.unshare(config, args.name, args.force)
+    print(f"Environment {args.name!r} is private again.")
+    print(f"Metadata and configuration present at {document}")
     return 0
 
 
@@ -1084,6 +1100,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="let every group member change a shared environment",
     )
+    share = sub.add_parser("share", help="move a private environment to the shared registry")
+    share.add_argument("name")
+    share.add_argument(
+        "--group-writable",
+        action="store_true",
+        help="let every group member change it",
+    )
+    unshare = sub.add_parser("unshare", help="move a shared environment you created back to private")
+    unshare.add_argument("name")
+    unshare.add_argument(
+        "--force",
+        action="store_true",
+        help="ignore processes that look like they have it active",
+    )
     config_parser = sub.add_parser("config", help="read or write project metadata")
     config_parser.add_argument(
         "--env", "--project", dest="project", metavar="NAME"
@@ -1223,6 +1253,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_current(config, args)
         if args.command == "create":
             return cmd_create(config, args)
+        if args.command == "share":
+            return cmd_share(config, args)
+        if args.command == "unshare":
+            return cmd_unshare(config, args)
         if args.command == "config":
             return cmd_config(config, args)
         if args.command == "python-env" and args.python_env_command == "list":

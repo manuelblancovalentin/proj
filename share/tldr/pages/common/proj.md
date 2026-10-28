@@ -42,6 +42,12 @@
 
 `proj create {{project_name}} --shared`
 
+- Move a private environment to the shared registry, or back to private:
+
+`proj share {{project_name}}`
+
+`proj unshare {{project_name}}`
+
 - Activate a project environment:
 
 `proj activate {{project_name}}`

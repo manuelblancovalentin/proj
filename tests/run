@@ -588,6 +588,31 @@ if HOME="$install_home" "$shared_proj" create loose --group-writable >/dev/null 
 fi
 pass "shared installations create owner-only and group-writable environments"
 
+# share and unshare move an environment between the registries without changing it.
+share_env() { HOME="$install_home" "$shared_proj" "$@"; }
+mkdir -p "$tmp/work/lent"
+share_env create lent --root "$tmp/work/lent" >/dev/null || fail "share fixture"
+printf 'kept\n' >"$install_home/.proj/envs/lent/notes.md"
+cp "$install_home/.proj/envs/lent/project.toml" "$tmp/lent.before"
+share_env share lent >/dev/null || fail "proj share"
+[ ! -e "$install_home/.proj/envs/lent" ] || fail "share left the private copy"
+cmp -s "$tmp/lent.before" "$shared_registry/lent/project.toml" || fail "share changed the document"
+[ "$(stat -c '%a' "$shared_registry/lent" "$shared_registry/lent/project.toml" "$shared_registry/lent/notes.md" | tr '\n' ' ')" = \
+  '2755 644 644 ' ] || fail "shared permissions after share"
+share_env list | grep -q '^lent  *shared' || fail "shared environment listed after share"
+if share_env share lent >/dev/null 2>&1; then fail "share of an environment that is not private"; fi
+if PROJ_ACTIVE=lent share_env unshare lent >/dev/null 2>&1; then fail "unshare of the active environment"; fi
+[ -f "$shared_registry/lent/project.toml" ] || fail "a refused unshare must leave the environment shared"
+share_env unshare lent >/dev/null || fail "proj unshare"
+[ ! -e "$shared_registry/lent" ] && cmp -s "$tmp/lent.before" "$install_home/.proj/envs/lent/project.toml" &&
+  [ -f "$install_home/.proj/envs/lent/notes.md" ] || fail "unshare did not move it back unchanged"
+share_env list | grep -q '^lent  *private' || fail "private environment listed after unshare"
+if share_env unshare lent >/dev/null 2>&1; then fail "unshare of an environment that is not shared"; fi
+share_env share lent --group-writable >/dev/null || fail "proj share --group-writable"
+[ "$(stat -c '%a' "$shared_registry/lent" "$shared_registry/lent/project.toml" | tr '\n' ' ')" = '2775 664 ' ] ||
+  fail "group-writable permissions after share"
+pass "proj share and proj unshare move an environment between registries unchanged"
+
 remove_env() {
   PROJ_HOME="$tmp/remove-home" PROJ_CACHE_HOME="$tmp/remove-cache" "$root/bin/proj" "$@"
 }

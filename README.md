@@ -729,6 +729,22 @@ proj module add toolchain cuda/12.6 --env atlas
 proj list                                      # SCOPE "shared", OWNER you
 ```
 
+### Sharing an environment you already have
+
+```sh
+proj share atlas                     # move your private atlas to the shared registry
+proj share atlas --group-writable    # ... and let any member change it
+proj unshare atlas                   # back to private (only its creator)
+```
+
+The environment keeps its name, its metadata and its other files; it is copied
+into place and the old copy is removed last, so a failure leaves it where it
+was. `proj share` refuses a name the shared registry already has, and neither
+command moves the environment active in the current shell. `proj unshare` also
+refuses while a program you can see (started from a shell that had activated
+it) still has it active; `--force` skips that check. Other people's shells are
+invisible to it unless you are root, so tell the group first.
+
 Everyone in the group can now run `proj activate atlas`. For that to work for
 them, the project root and the Python environment must be readable by the
 group. In a shared environment, `set-python-env` records the environment's
@@ -849,6 +865,7 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | Command | Purpose |
 |---|---|
 | `proj create <name> [--root DIR] [--shared [--group-writable]] [--use NAME]...` | Register a project |
+| `proj share <name> [--group-writable]` / `proj unshare <name> [--force]` | Move a private environment to the shared registry, or back |
 | `proj use [name[/version]]... [--env NAME] [--list]` | Use a library, suite, or tool; with no name, show what is used |
 | `proj unuse <name>... [--env NAME]` | Stop using a module |
 | `proj list [--json] [--scope all\|shared\|private] [--under DIR]...` | List environments with scope and owner; `--json` prints a snapshot for other programs |
