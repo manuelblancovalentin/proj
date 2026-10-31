@@ -411,7 +411,8 @@ Values may use four placeholders and nothing else: `${project.name}`,
 `${project.root}`, `${project.metadata}`, and `${user.home}`. Shell syntax,
 command substitution, and other variables are rejected. PATH additions must
 be absolute and stay inside the project root. Lmod applies and reverses all of
-these.
+these: a variable you set in `[environment]` is saved and put back when the
+environment ends (Lmod `pushenv`), not just erased.
 
 ### Hooks
 
@@ -928,7 +929,7 @@ depends_on("cmake/3.30")
 depends_on("ninja/1.12")
 depends_on("gcc/14")
 setenv("PROJ_ACTIVE", "atlas")
-setenv("ATLAS_MODE", "development")
+pushenv("ATLAS_MODE", "development")
 prepend_path("PATH", "/projects/atlas/bin")
 set_alias("atlas-root", "cd /projects/atlas")
 ```

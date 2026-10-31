@@ -132,6 +132,17 @@ class MetadataTests(unittest.TestCase):
         self.assertIn('setenv("PROJ_ACTIVE", "demo")', content)
         self.assertIn('set_alias("demo-home"', content)
 
+    def test_user_variables_are_pushed_so_deactivation_restores_them(self):
+        project = load_project(self.metadata)
+        content = render(project)
+        user_keys = sorted(project.environment)
+        self.assertTrue(user_keys)
+        for key in user_keys:
+            self.assertIn(f'pushenv("{key}", ', content)
+            self.assertNotIn(f'setenv("{key}", ', content)
+        # proj's own markers are not the person's variables.
+        self.assertIn('setenv("PROJ_ACTIVE", "demo")', content)
+
     def test_materialization_is_idempotent(self):
         environment = {
             "PROJ_HOME": str(Path(self.temp.name) / "proj-home"),

@@ -125,6 +125,8 @@ activation.
   `AccessDenied`, with no path printed) and never names it: `proj list` sums them up in one
   line on stderr, `proj list --json` reports the count as `unreadable` (and
   `skipped` stays for invalid documents).
+- `[environment]` values are set with Lmod `pushenv`, so deactivation restores
+  the person's own value; only `PROJ_*` markers use `setenv`.
 - Command completion lets the everyday commands (`activate deactivate list status
   current use unuse create info`) win a shared prefix when the typed prefix
   matches one, in both `proj.bash` and `_proj`, so `proj ac<Tab>` completes

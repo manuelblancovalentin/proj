@@ -41,7 +41,7 @@ def render(project: Project) -> str:
             f"setenv(\"PROJ_MAMBA_ENV\", {_lua(project.python_environment)})"
         )
     for key, value in sorted(project.environment.items()):
-        lines.append(f"setenv({_lua(key)}, {_lua(project.expand(value))})")
+        lines.append(f"pushenv({_lua(key)}, {_lua(project.expand(value))})")
     for value in project.prepend_paths:
         lines.append(f"prepend_path(\"PATH\", {_lua(project.expand(value))})")
     for key, value in sorted(project.aliases.items()):

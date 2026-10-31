@@ -6,5 +6,6 @@ family("project")
 
 -- depends_on("compiler/version")
 -- setenv("PROJ_ACTIVE", "name")
+-- pushenv("USER_VARIABLE", "value")   -- restored on unload
 -- prepend_path("PATH", "/project/root/bin")
 -- set_alias("helper", "command")
