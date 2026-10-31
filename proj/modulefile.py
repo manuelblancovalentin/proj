@@ -42,6 +42,20 @@ def render(project: Project) -> str:
         )
     for key, value in sorted(project.environment.items()):
         lines.append(f"pushenv({_lua(key)}, {_lua(project.expand(value))})")
+    for key, entries in sorted(project.environment_paths.items()):
+        # Only a folder that exists is added, so a person with no clone gets the
+        # shared version. The list reads in priority order, which is the reverse
+        # of how Lmod stacks successive prepends.
+        for value in reversed(entries.prepend):
+            path = _lua(project.expand(value))
+            lines.append(
+                f"if isDir({path}) then prepend_path({_lua(key)}, {path}) end"
+            )
+        for value in entries.append:
+            path = _lua(project.expand(value))
+            lines.append(
+                f"if isDir({path}) then append_path({_lua(key)}, {path}) end"
+            )
     for value in project.prepend_paths:
         lines.append(f"prepend_path(\"PATH\", {_lua(project.expand(value))})")
     for key, value in sorted(project.aliases.items()):

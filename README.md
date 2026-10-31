@@ -414,6 +414,22 @@ be absolute and stay inside the project root. Lmod applies and reverses all of
 these: a variable you set in `[environment]` is saved and put back when the
 environment ends (Lmod `pushenv`), not just erased.
 
+To add to a variable that holds a list of folders (`PYTHONPATH`, `PATH`,
+`LD_LIBRARY_PATH`), use `environment_paths`. Its entries may lie outside the
+project root, are added only when the folder exists, and only those entries are
+removed when the environment ends; your own value is left alone:
+
+```sh
+proj config 'environment_paths.PYTHONPATH.prepend=["${user.home}/atlas/repo/src"]'
+proj config 'environment_paths.PATH.append=["${user.home}/atlas/bin"]'
+```
+
+The first entry of `prepend` ends up first. A variable cannot be in both
+`[environment]` and `[environment_paths]`, and `PROJ_*` names are proj's own.
+Everything under `environment_paths` is shown by `proj info`. Older proj
+versions ignore this table and drop it the next time they rewrite the document,
+so upgrade everyone who shares an environment before using it.
+
 ### Hooks
 
 Hooks are commands run on activation (`startup`) and deactivation
@@ -855,6 +871,10 @@ project = []
 [environment]
 ATLAS_MODE = "development"
 ATLAS_DATA = "${project.root}/data"
+
+[environment_paths.PYTHONPATH]         # added to a list variable, then removed again
+prepend = ["${user.home}/atlas/repo/src"]   # only if the folder exists
+append = []
 
 [paths]
 prepend = ["${project.root}/bin"]      # must stay inside the root

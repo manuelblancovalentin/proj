@@ -37,6 +37,9 @@ compiler = ["gcc/14"]
 EXAMPLE_MODE = "development"
 EXAMPLE_DATA = "${project.root}/data"
 
+[environment_paths.PYTHONPATH]
+prepend = ["${user.home}/example/repo/src"]
+
 [paths]
 prepend = ["${project.root}/bin"]
 
@@ -56,6 +59,14 @@ command = ["./scripts/build"]
 `conda`, or `mamba`; when omitted, the configured `python_manager` applies.
 `python.environment` is an environment name or an absolute prefix path; shared environments store the
 prefix so that every member resolves the same environment.
+
+`[environment]` variables are set with Lmod `pushenv`: the person's previous
+value comes back when the environment ends. `[environment_paths.<VARIABLE>]`
+takes `prepend` and `append` arrays for list variables (`PYTHONPATH`, `PATH`,
+...). Every entry must be one absolute path after interpolation (no `:`), may lie
+anywhere, and is added only if the folder exists; Lmod removes just those entries
+on unload. The first `prepend` entry ends up first. A variable may not be in both
+tables, and names starting with `PROJ_` are proj's.
 
 `project.root` is kept exactly as written when it is an absolute path without
 `..`, and it may be a symbolic link (for example a stable `/projects/atlas`

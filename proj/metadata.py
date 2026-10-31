@@ -31,6 +31,15 @@ class Hook:
 
 
 @dataclass(frozen=True)
+class PathVariable:
+    """Entries added to a path-like variable (PYTHONPATH, PATH, ...) that Lmod
+    removes again on unload, leaving the person's own entries alone."""
+
+    prepend: tuple[str, ...] = ()
+    append: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Command:
     description: str
     argv: tuple[str, ...]
@@ -51,6 +60,7 @@ class Project:
     python_environment: str | None = None
     modules: dict[str, tuple[str, ...]] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
+    environment_paths: dict[str, PathVariable] = field(default_factory=dict)
     prepend_paths: tuple[str, ...] = ()
     aliases: dict[str, str] = field(default_factory=dict)
     startup_hooks: tuple[Hook, ...] = ()
@@ -111,6 +121,31 @@ def _string_list(value: Any, label: str, source: Path) -> tuple[str, ...]:
     ):
         raise MetadataError(f"{source}: {label} must be an array of strings")
     return tuple(value)
+
+
+def _path_variables(
+    table: dict[str, Any], environment: dict[str, Any], source: Path
+) -> dict[str, PathVariable]:
+    result: dict[str, PathVariable] = {}
+    for variable, entries in table.items():
+        label = f"environment_paths.{variable}"
+        if not ENVIRONMENT_NAME_RE.fullmatch(variable):
+            raise MetadataError(f"{source}: invalid variable name in {label}")
+        if variable.startswith("PROJ_"):
+            raise MetadataError(f"{source}: {label}: PROJ_* variables belong to proj")
+        if variable in environment:
+            raise MetadataError(
+                f"{source}: {variable} is set in both [environment] and [{label}]"
+            )
+        if not isinstance(entries, dict) or set(entries) - {"prepend", "append"}:
+            raise MetadataError(
+                f"{source}: [{label}] takes only prepend and append arrays"
+            )
+        prepend = _string_list(entries.get("prepend"), f"{label}.prepend", source)
+        append = _string_list(entries.get("append"), f"{label}.append", source)
+        if prepend or append:
+            result[variable] = PathVariable(prepend, append)
+    return result
 
 
 def _hooks(value: Any, label: str, source: Path) -> tuple[Hook, ...]:
@@ -216,6 +251,9 @@ def load_project(metadata_path: Path) -> Project:
             f"{metadata_path}: invalid environment names: "
             + ", ".join(sorted(invalid_environment))
         )
+    environment_paths = _path_variables(
+        _table(data, "environment_paths", metadata_path), environment, metadata_path
+    )
     paths = _table(data, "paths", metadata_path)
     prepend_paths = _string_list(paths.get("prepend"), "paths.prepend", metadata_path)
     aliases = _table(data, "aliases", metadata_path)
@@ -256,6 +294,7 @@ def load_project(metadata_path: Path) -> Project:
         python_environment=python_environment,
         modules=modules,
         environment=dict(environment),
+        environment_paths=environment_paths,
         prepend_paths=prepend_paths,
         aliases=dict(aliases),
         startup_hooks=startup,
@@ -269,6 +308,14 @@ def load_project(metadata_path: Path) -> Project:
         *result.aliases.values(),
     ):
         result.expand(value)
+    for variable, entries in result.environment_paths.items():
+        for value in (*entries.prepend, *entries.append):
+            expanded = result.expand(value)
+            if not os.path.isabs(expanded) or ":" in expanded or "\n" in expanded:
+                raise MetadataError(
+                    f"{metadata_path}: environment_paths.{variable}: {value!r} must "
+                    "expand to one absolute path"
+                )
     for value in result.prepend_paths:
         expanded_path = Path(result.expand(value))
         if not expanded_path.is_absolute():

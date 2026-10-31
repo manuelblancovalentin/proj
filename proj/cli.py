@@ -433,6 +433,9 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
         (f"Variable {key}", project.expand(value))
         for key, value in sorted(project.environment.items())
     )
+    for key, entries in sorted(project.environment_paths.items()):
+        rows.extend((f"{key} prepend", project.expand(v)) for v in entries.prepend)
+        rows.extend((f"{key} append", project.expand(v)) for v in entries.append)
     rows.extend(("PATH prepend", project.expand(value)) for value in project.prepend_paths)
     rows.extend(
         (f"Alias {key}", project.expand(value))
@@ -661,6 +664,11 @@ def cmd_env_show(config: Config, args: argparse.Namespace) -> int:
     print("Paths:")
     for value in project.prepend_paths:
         print(f"  {project.expand(value)}")
+    for key, entries in sorted(project.environment_paths.items()):
+        for value in entries.prepend:
+            print(f"  {key} prepend {project.expand(value)}")
+        for value in entries.append:
+            print(f"  {key} append {project.expand(value)}")
     print("Aliases:")
     for key, value in sorted(project.aliases.items()):
         print(f"  {key}={project.expand(value)}")

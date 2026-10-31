@@ -92,6 +92,10 @@
 
 `proj set-python-env {{environment_name}}`
 
+- Put your own clone ahead of an installed package, for you only:
+
+`proj config environment_paths.PYTHONPATH.prepend='["${user.home}/{{project}}/repo/src"]'`
+
 - Add an Lmod dependency from a supported category:
 
 `proj module add {{compiler|toolchain|application|project}} {{module/version}}`

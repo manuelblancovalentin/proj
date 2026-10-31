@@ -26,6 +26,7 @@ EXACT_CONFIG_KEYS = {
     "hooks.shutdown",
 }
 OPEN_CONFIG_SECTIONS = {"environment", "aliases"}
+PATH_VARIABLE_FIELDS = ("prepend", "append")
 
 
 def _toml(value: Any) -> str:
@@ -59,6 +60,7 @@ def render_document(data: dict[str, Any]) -> str:
     python = dict(data.get("python", {}))
     modules = dict(data.get("modules", {}))
     environment = dict(data.get("environment", {}))
+    environment_paths = dict(data.get("environment_paths", {}))
     paths = dict(data.get("paths", {}))
     aliases = dict(data.get("aliases", {}))
     hooks = dict(data.get("hooks", {}))
@@ -101,6 +103,12 @@ def render_document(data: dict[str, Any]) -> str:
             lines.append(f"{key} = {_toml(value)}")
     else:
         lines.append('# PROJECT_MODE = "development"')
+
+    for variable, entries in sorted(environment_paths.items()):
+        lines.extend(("", f"[environment_paths.{variable}]"))
+        for field in PATH_VARIABLE_FIELDS:
+            if entries.get(field):
+                lines.append(f"{field} = {_toml(entries[field])}")
 
     lines.extend(("", "[paths]"))
     if paths.get("prepend"):
@@ -201,6 +209,11 @@ def set_dotted(data: dict[str, Any], dotted: str, value: Any) -> None:
             and components[1] in MODULE_CATEGORIES
         )
         or (components[0] in OPEN_CONFIG_SECTIONS and len(components) == 2)
+        or (
+            components[0] == "environment_paths"
+            and len(components) == 3
+            and components[2] in PATH_VARIABLE_FIELDS
+        )
     )
     if not allowed:
         raise ProjError(f"unknown or unsupported configuration key {dotted!r}")

@@ -310,6 +310,13 @@ modules.<category>      environment.<variable>
 aliases.<name>
 .fi
 .PP
+Variables in
+.B [environment]
+are restored to their previous value when the environment ends. The
+.B environment_paths
+tables add folders to a list variable such as PYTHONPATH, only when they exist,
+and remove just those entries again.
+.PP
 Examples:
 .PP
 .nf

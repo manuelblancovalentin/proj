@@ -127,6 +127,11 @@ activation.
   `skipped` stays for invalid documents).
 - `[environment]` values are set with Lmod `pushenv`, so deactivation restores
   the person's own value; only `PROJ_*` markers use `setenv`.
+  `[environment_paths.<VAR>]` (`prepend`, `append`) adds absolute folders to a
+  list variable with `prepend_path`/`append_path` guarded by `isDir`, anywhere
+  on disk (unlike `paths.prepend`), and Lmod removes only those entries. A
+  variable is in one table or the other; `PROJ_*` names are refused. Older proj
+  versions ignore the table and drop it when they rewrite a document.
 - Command completion lets the everyday commands (`activate deactivate list status
   current use unuse create info`) win a shared prefix when the typed prefix
   matches one, in both `proj.bash` and `_proj`, so `proj ac<Tab>` completes
