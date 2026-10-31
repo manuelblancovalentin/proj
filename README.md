@@ -861,6 +861,7 @@ shell = "zsh"                          # zsh or bash; informational
 [python]
 manager = "conda"                      # micromamba, conda, or mamba
 environment = "atlas"                  # name, or absolute prefix path
+spec = "/projects/atlas/environment.yml"   # the file it is built from (optional)
 
 [modules]
 compiler = ["gcc/14"]
@@ -892,16 +893,18 @@ command = ["./scripts/build"]
 ```
 
 Keys accepted by `proj config`: `project.description`, `project.root`,
-`project.shell`, `python.manager`, `python.environment`, `paths.prepend`,
-`hooks.startup`, `hooks.shutdown`, `modules.<category>`,
-`environment.<VARIABLE>`, and `aliases.<name>`. Details:
+`project.shell`, `python.manager`, `python.environment`, `python.spec`,
+`paths.prepend`, `hooks.startup`, `hooks.shutdown`, `modules.<category>`,
+`environment.<VARIABLE>`, `environment_paths.<VARIABLE>.prepend|append`, and
+`aliases.<name>`. The `[python.stamp]` and `[derived]` tables are written by
+`proj python-env stamp` and `proj create --from`, never by `proj config`. Details:
 [docs/metadata.md](docs/metadata.md).
 
 ## Command reference
 
 | Command | Purpose |
 |---|---|
-| `proj create <name> [--root DIR] [--shared [--group GROUP] [--group-writable\|--private]] [--use NAME]...` | Register a project |
+| `proj create <name> [--root DIR] [--from NAME] [--python ENV] [--shared [--group GROUP] [--group-writable\|--private]] [--use NAME]...` | Register a project |
 | `proj share <name> [--group GROUP] [--group-writable\|--private]` / `proj unshare <name> [--force]` | Move a private environment to the shared registry, or back |
 | `proj access <name> [--owner-only\|--group-writable\|--private]` | Show or change who can see and change a shared environment |
 | `proj use [name[/version]]... [--env NAME] [--list]` | Use a library, suite, or tool; with no name, show what is used |
@@ -918,6 +921,7 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj configmenu [--env NAME] [--setup]` | Edit an environment in an interactive menu |
 | `proj set-python-env [--env NAME] [--manager M] <environment>` | Link a Python environment |
 | `proj python-env list [--manager M]` | List Python environments |
+| `proj python-env stamp [--env NAME]` | Record the hash of `python.spec`, after the Python environment was rebuilt from it |
 | `proj module {list\|add\|remove} <category> [module] [--env NAME]` | Manage Lmod modules |
 | `proj env list` / `proj env show <name>` | Inspect generated modules |
 | `proj doctor` | Check the installation and this shell |

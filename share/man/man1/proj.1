@@ -30,7 +30,7 @@ proj module add compiler gcc/14
 .fi
 .SH COMMANDS
 .TP
-.BI "proj create " name " [--root " directory "] [--shared [--group " group "] [--group-writable | --private]] [--use " name "]..."
+.BI "proj create " name " [--root " directory "] [--from " name "] [--python " environment "] [--shared [--group " group "] [--group-writable | --private]] [--use " name "]..."
 Register a project. The root defaults to the current directory. Creates a
 valid starter document in the private registry,
 prints its location, and leaves optional fields commented.
@@ -52,6 +52,10 @@ hooks) under the new name; its root is kept unless
 is given. It is a snapshot: later changes to the original are not followed, and
 .B proj info
 says when the original has changed. The original's build stamp is not copied.
+.B --python
+links a Python environment (a name from
+.B proj python-env list
+or a prefix) at creation.
 .TP
 .BR "proj share " name " [--group " group "] [--group-writable | --private]"
 Move one of your private environments to the shared registry: same name, same
@@ -239,6 +243,12 @@ it needs network access.
 .BR "proj python-env list " "[--manager " manager ]
 List environments reported by the default or named manager.
 .TP
+.BR "proj python-env stamp " "[--env " name ]
+Record the SHA-256 of the file named by
+.B python.spec
+and today's date. Run it after the Python environment has been rebuilt from
+that file. Only someone who may change the environment can.
+.TP
 .BR "proj module " "{list|add|remove} " category " [" module "]"
 Manage module dependencies. Categories are
 .BR project ,
@@ -311,10 +321,12 @@ Generic configuration supports:
 .nf
 project.description     project.root
 project.shell           python.manager
-python.environment      paths.prepend
-hooks.startup           hooks.shutdown
-modules.<category>      environment.<variable>
-aliases.<name>
+python.environment      python.spec
+paths.prepend           hooks.startup
+hooks.shutdown          modules.<category>
+environment.<variable>  aliases.<name>
+environment_paths.<variable>.prepend
+environment_paths.<variable>.append
 .fi
 .PP
 Variables in

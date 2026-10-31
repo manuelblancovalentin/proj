@@ -22,6 +22,7 @@ EXACT_CONFIG_KEYS = {
     "project.shell",
     "python.manager",
     "python.environment",
+    "python.spec",
     "paths.prepend",
     "hooks.startup",
     "hooks.shutdown",
@@ -101,6 +102,12 @@ def render_document(data: dict[str, Any]) -> str:
         lines.append(f"environment = {_toml(python['environment'])}")
     else:
         lines.append('# environment = "environment-name"')
+    if python.get("spec"):
+        lines.append(f"spec = {_toml(python['spec'])}")
+    if python.get("stamp"):
+        lines.extend(("", "[python.stamp]"))
+        for field in ("sha256", "date", "by"):
+            lines.append(f"{field} = {_toml(python['stamp'][field])}")
 
     lines.extend(("", "[modules]"))
     for category in MODULE_CATEGORIES:

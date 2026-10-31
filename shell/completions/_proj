@@ -90,7 +90,10 @@ env_actions=(
   'list:List generated environments'
   'show:Show an effective environment'
 )
-python_actions=('list:List Python environments')
+python_actions=(
+  'list:List Python environments'
+  'stamp:Record the dependency file an environment was built from'
+)
 
 # Direct positional dispatch is intentionally used instead of a nested
 # _arguments state machine. It mirrors argparse exactly and remains predictable
@@ -165,8 +168,10 @@ case $words[2] in
       _proj_use_names
     elif [[ ${words[CURRENT-1]-} == --from ]]; then
       _proj_project_names
+    elif [[ ${words[CURRENT-1]-} == --python ]]; then
+      _proj_python_environments
     elif (( CURRENT >= 4 )); then
-      _values 'option' --root --shared --group --group-writable --private --use
+      _values 'option' --root --from --python --shared --group --group-writable --private --use
     fi
     ;;
   use)
@@ -194,7 +199,7 @@ case $words[2] in
     if (( CURRENT == 3 )); then
       _values 'configuration key' \
         project.description project.root project.shell \
-        python.manager python.environment paths.prepend \
+        python.manager python.environment python.spec paths.prepend \
         hooks.startup hooks.shutdown
     fi
     ;;
@@ -219,6 +224,8 @@ case $words[2] in
   python-env)
     if (( CURRENT == 3 )); then
       _describe 'Python environment action' python_actions
+    elif [[ $words[3] == stamp ]]; then
+      _values 'option' --env
     else
       _values 'option' --manager
     fi

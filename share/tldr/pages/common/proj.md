@@ -100,6 +100,10 @@
 
 `proj create {{new_name}} --from {{project_name}} --python {{python_environment}}`
 
+- Record the file a Python environment was built from, then check it is current:
+
+`proj python-env stamp --env {{project_name}}`
+
 - Add an Lmod dependency from a supported category:
 
 `proj module add {{compiler|toolchain|application|project}} {{module/version}}`

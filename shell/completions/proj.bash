@@ -33,6 +33,8 @@ _proj_complete() {
     candidates=$(_proj_cli _complete uses 2>/dev/null)
   elif [[ $command == create && $prev == --from ]]; then
     candidates=$(_proj_cli _complete projects 2>/dev/null)
+  elif [[ $command == create && $prev == --python ]]; then
+    candidates=$(_proj_cli python-env list 2>/dev/null)
   elif [[ $command == create && $prev == --root ]] ||
        [[ $command == init && $prev == --rc ]]; then
     compopt -o default 2>/dev/null
@@ -89,11 +91,11 @@ _proj_complete() {
         fi
         ;;
       create)
-        (( COMP_CWORD >= 3 )) && candidates=$'--root\n--shared\n--group\n--group-writable\n--private\n--use'
+        (( COMP_CWORD >= 3 )) && candidates=$'--root\n--from\n--python\n--shared\n--group\n--group-writable\n--private\n--use'
         ;;
       config)
         candidates=$'--env\nproject.description\nproject.root\nproject.shell'
-        candidates+=$'\npython.manager\npython.environment\npaths.prepend'
+        candidates+=$'\npython.manager\npython.environment\npython.spec\npaths.prepend'
         candidates+=$'\nhooks.startup\nhooks.shutdown'
         ;;
       info)
@@ -110,7 +112,13 @@ _proj_complete() {
         candidates+=$'\n--env\n--manager'
         ;;
       python-env)
-        if (( COMP_CWORD == 2 )); then candidates=list; else candidates=--manager; fi
+        if (( COMP_CWORD == 2 )); then
+          candidates=$'list\nstamp'
+        elif [[ ${COMP_WORDS[2]} == stamp ]]; then
+          candidates=--env
+        else
+          candidates=--manager
+        fi
         ;;
       module)
         case $COMP_CWORD in

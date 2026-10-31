@@ -39,6 +39,8 @@ class DeriveTests(unittest.TestCase):
         set_dotted(data, "modules.toolchain", ["cmake/3.30"])
         set_dotted(data, "environment.ATLAS_MODE", "development")
         set_dotted(data, "paths.prepend", ["${project.root}/bin"])
+        set_dotted(data, "python.spec", "${project.root}/repo/environment.yml")
+        data["python"]["stamp"] = {"sha256": "a" * 64, "date": "2026-10-01", "by": "lead"}
         write_document(self.original, data)
         (self.root / "bin").mkdir()
 
@@ -65,11 +67,14 @@ class DeriveTests(unittest.TestCase):
         self.assertEqual(copy.environment, original.environment)
         self.assertEqual(copy.prepend_paths, original.prepend_paths)
         self.assertEqual(copy.root, original.root)
+        self.assertEqual(copy.python_spec, original.python_spec)
 
-    def test_the_origin_is_recorded(self):
+    def test_the_build_stamp_is_not_copied_but_the_origin_is_recorded(self):
         self.copy()
         copy = load_project(self.home / "envs" / "atlas-topic" / "project.toml")
+        self.assertIsNone(copy.python_stamp)
         self.assertEqual(copy.derived.source, "atlas")
+        self.assertIsNotNone(load_project(self.original).python_stamp)
 
     def test_info_says_when_the_original_changed_or_disappeared(self):
         self.copy()
@@ -80,6 +85,13 @@ class DeriveTests(unittest.TestCase):
         self.assertIn("the original has changed since", info())
         self.original.unlink()
         self.assertIn("no longer readable", info())
+
+    def test_a_stamp_alone_does_not_count_as_a_change(self):
+        self.copy()
+        data = load_document(self.original)
+        data["python"]["stamp"] = {"sha256": "b" * 64, "date": "2026-10-20", "by": "lead"}
+        write_document(self.original, data)
+        self.assertNotIn("has changed", self.run_proj("info", "--env", "atlas-topic")[1])
 
     def test_root_and_use_can_be_given_and_the_name_must_be_free(self):
         elsewhere = self.base / "elsewhere"
@@ -95,6 +107,16 @@ class DeriveTests(unittest.TestCase):
         self.assertIn("unknown project", self.stderr)
         self.assertFalse((self.home / "envs" / "x").exists())
 
+    def test_python_environment_must_exist(self):
+        with patch("proj.python_envs.environments", return_value={"atlas-topic": Path("/p")}):
+            self.copy("--python", "atlas-topic")
+        copy = load_project(self.home / "envs" / "atlas-topic" / "project.toml")
+        self.assertEqual(copy.python_environment, "atlas-topic")
+        with patch("proj.python_envs.environments", return_value={}):
+            code = self.run_proj("create", "other", "--from", "atlas", "--python", "ghost")[0]
+            self.assertNotEqual(code, 0)
+            self.assertIn("unknown micromamba environment", self.stderr)
+        self.assertFalse((self.home / "envs" / "other").exists())
 
 
 if __name__ == "__main__":

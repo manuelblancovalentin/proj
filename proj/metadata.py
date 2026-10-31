@@ -40,6 +40,16 @@ class PathVariable:
 
 
 @dataclass(frozen=True)
+class PythonStamp:
+    """What the Python environment was built from: the SHA-256 of its
+    dependency file when `proj python-env stamp` last ran."""
+
+    sha256: str
+    date: str
+    by: str
+
+
+@dataclass(frozen=True)
 class Derived:
     """The environment this one was copied from by `proj create --from`."""
 
@@ -67,6 +77,8 @@ class Project:
     shown_root: Path | None = None
     python_manager: str | None = None
     python_environment: str | None = None
+    python_spec: str | None = None
+    python_stamp: PythonStamp | None = None
     derived: Derived | None = None
     modules: dict[str, tuple[str, ...]] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
@@ -166,6 +178,15 @@ def _text_fields(value: Any, label: str, fields: tuple[str, ...], source: Path):
     return [value[field] for field in fields]
 
 
+def _stamp(value: Any, source: Path) -> PythonStamp | None:
+    if value is None:
+        return None
+    sha256, date, by = _text_fields(value, "python.stamp", ("sha256", "date", "by"), source)
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise MetadataError(f"{source}: python.stamp.sha256 must be a SHA-256 digest")
+    return PythonStamp(sha256, date, by)
+
+
 def _derived(value: Any, source: Path) -> Derived | None:
     if value is None:
         return None
@@ -237,6 +258,8 @@ def load_project(metadata_path: Path) -> Project:
     python_data = _table(data, "python", metadata_path)
     python_manager = _string(python_data, "manager", metadata_path)
     python_environment = _string(python_data, "environment", metadata_path)
+    python_spec = _string(python_data, "spec", metadata_path)
+    python_stamp = _stamp(python_data.get("stamp"), metadata_path)
     derived = _derived(data.get("derived"), metadata_path)
     # Without a manager, the environment uses the configured default manager.
     if python_manager and python_manager not in PYTHON_MANAGERS:
@@ -320,6 +343,8 @@ def load_project(metadata_path: Path) -> Project:
         shown_root=written if written.is_absolute() and ".." not in written.parts else None,
         python_manager=python_manager,
         python_environment=python_environment,
+        python_spec=python_spec,
+        python_stamp=python_stamp,
         derived=derived,
         modules=modules,
         environment=dict(environment),
@@ -337,6 +362,10 @@ def load_project(metadata_path: Path) -> Project:
         *result.aliases.values(),
     ):
         result.expand(value)
+    if result.python_spec:
+        spec = result.expand(result.python_spec)
+        if not os.path.isabs(spec):
+            raise MetadataError(f"{metadata_path}: python.spec must be an absolute path")
     for variable, entries in result.environment_paths.items():
         for value in (*entries.prepend, *entries.append):
             expanded = result.expand(value)

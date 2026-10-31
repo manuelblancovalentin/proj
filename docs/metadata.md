@@ -26,6 +26,7 @@ shell = "zsh"
 [python]
 manager = "micromamba"
 environment = "example"
+spec = "/path/to/example/environment.yml"
 
 [modules]
 project = []
@@ -59,6 +60,12 @@ command = ["./scripts/build"]
 `conda`, or `mamba`; when omitted, the configured `python_manager` applies.
 `python.environment` is an environment name or an absolute prefix path; shared environments store the
 prefix so that every member resolves the same environment.
+
+`python.spec` optionally names the dependency file the Python environment is
+built from (an absolute path after interpolation). `proj python-env stamp`
+records its SHA-256 and the date in a `[python.stamp]` table (`sha256`, `date`,
+`by`); `proj status` compares the file with that hash. proj only hashes the file;
+it never builds the environment or reads inside it.
 
 A `[derived]` table (`from`, `date`, `digest`) is written by `proj create
 --from` and records which environment this one was copied from and a digest of
@@ -101,9 +108,10 @@ proj config hooks.startup='[["./scripts/check-config"]]'
 
 Values use TOML syntax when needed. Plain unquoted text is treated as a string.
 Supported generic keys are `project.description`, `project.root`,
-`project.shell`, `python.manager`, `python.environment`, `paths.prepend`,
-`hooks.startup`, `hooks.shutdown`, `modules.<category>`,
-`environment.<variable>`, and `aliases.<name>`. Dedicated helpers are preferred
+`project.shell`, `python.manager`, `python.environment`, `python.spec`,
+`paths.prepend`, `hooks.startup`, `hooks.shutdown`, `modules.<category>`,
+`environment.<variable>`, `environment_paths.<variable>.prepend|append`, and
+`aliases.<name>`. Dedicated helpers are preferred
 for Python environments and modules.
 
 Supported module categories are exactly `project`, `toolchain`, `application`,

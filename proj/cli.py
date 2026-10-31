@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, export, lmod, menu_runtime, python_envs, sharing, upgrade, uses
+from . import access, export, lmod, menu_runtime, provenance, python_envs, sharing, upgrade, uses
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -349,6 +349,12 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         )
     # Resolve every --use first, so a refusal creates nothing.
     initial = _plan_uses(config, args.use, {}) if args.use else None
+    python_text = None
+    if args.python:
+        manager = (
+            original_data.get("python", {}).get("manager") or config.python_manager
+        )
+        python_text = _python_environment(config, manager, args.python, args.shared)
     mode = None
     if args.shared:
         metadata_path = access.shared_registry(config) / args.name / "project.toml"
@@ -378,11 +384,14 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         write_document(metadata_path, data, mode)
     else:
         create_document(metadata_path, args.name, root, mode, config.python_manager)
-    if initial:
+    if python_text or initial:
         document = load_document(metadata_path)
-        for category in MODULE_CATEGORIES:
-            if initial.modules[category]:
-                set_dotted(document, f"modules.{category}", initial.modules[category])
+        if python_text:
+            set_dotted(document, "python.environment", python_text)
+        if initial:
+            for category in MODULE_CATEGORIES:
+                if initial.modules[category]:
+                    set_dotted(document, f"modules.{category}", initial.modules[category])
         write_document(metadata_path, document)
     # Validate the generated document before reporting success.
     project = load_project(metadata_path)
@@ -454,6 +463,8 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
         ("Python manager", python_envs.manager_for(config, project)),
         ("Python environment", project.python_environment or "not configured"),
     ]
+    if project.python_spec:
+        rows.append(("Python dependencies", provenance.describe(provenance.freshness(project))))
     if project.derived:
         rows.append(("Copied from", _derived_label(config, project)))
     for category in MODULE_CATEGORIES:
@@ -559,26 +570,52 @@ def cmd_python_env_list(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_python_env_stamp(config: Config, args: argparse.Namespace) -> int:
+    project = _selected_project(config, args.project)
+    spec = provenance.spec_path(project)
+    if spec is None:
+        raise ProjError(
+            "no dependency file is declared: proj config python.spec=/path/to/environment.yml"
+        )
+    digest = provenance.file_digest(spec)
+    if digest is None:
+        raise ProjError(f"cannot read the dependency file {spec}")
+    today = datetime.date.today().isoformat()
+    by = provenance.stamper()
+
+    def mutate(data):
+        data.setdefault("python", {})["stamp"] = {"sha256": digest, "date": today, "by": by}
+
+    update_document(project, mutate)
+    print(f"Stamped {project.name}: {spec.name} is {digest[:12]} as of {today}.")
+    print("Run this after the Python environment has been rebuilt from that file.")
+    return 0
+
+
+def _python_environment(config: Config, manager: str, text: str, shared: bool) -> str:
+    """The value to record for a Python environment given by name or prefix."""
+    if os.path.isabs(text):
+        prefix = Path(text).resolve()
+        if not (prefix / "conda-meta").is_dir():
+            raise ProjError(f"not a {manager} environment prefix: {prefix}")
+        return str(prefix)
+    available = python_envs.environments(manager)
+    if text not in available:
+        raise ProjError(
+            f"unknown {manager} environment {text!r}; "
+            f"run `proj python-env list --manager {manager}`"
+        )
+    # Names resolve against each user's own root prefix, so a shared
+    # environment records the prefix that every member activates.
+    return str(available[text]) if shared else text
+
+
 def cmd_set_python_env(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
     manager = args.manager or python_envs.manager_for(config, project)
-    if os.path.isabs(args.environment):
-        prefix = Path(args.environment).resolve()
-        if not (prefix / "conda-meta").is_dir():
-            raise ProjError(f"not a {manager} environment prefix: {prefix}")
-        environment = str(prefix)
-    else:
-        available = python_envs.environments(manager)
-        if args.environment not in available:
-            raise ProjError(
-                f"unknown {manager} environment {args.environment!r}; "
-                f"run `proj python-env list --manager {manager}`"
-            )
-        # Names resolve against each user's own root prefix, so a shared
-        # environment records the prefix that every member activates.
-        environment = args.environment
-        if access.scope(config, project) == "shared":
-            environment = str(available[args.environment])
+    environment = _python_environment(
+        config, manager, args.environment, access.scope(config, project) == "shared"
+    )
 
     def mutate(data):
         set_dotted(data, "python.manager", manager)
@@ -1200,6 +1237,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="start from a copy of this environment (modules, variables, paths, hooks)",
     )
     create.add_argument(
+        "--python",
+        metavar="ENV",
+        help="link this Python environment (a name from proj python-env list, or a prefix)",
+    )
+    create.add_argument(
         "--use",
         action="append",
         default=[],
@@ -1256,6 +1298,11 @@ def build_parser() -> argparse.ArgumentParser:
     python_env_sub = python_env.add_subparsers(
         dest="python_env_command", required=True
     )
+    python_env_stamp = python_env_sub.add_parser(
+        "stamp",
+        help="record the hash of python.spec: the environment was built from it as it is now",
+    )
+    python_env_stamp.add_argument("--env", "--project", dest="project", metavar="NAME")
     python_env_list = python_env_sub.add_parser("list")
     python_env_list.add_argument("--manager", choices=PYTHON_MANAGERS)
     module = sub.add_parser("module", help="manage project module dependencies")
@@ -1385,6 +1432,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_config(config, args)
         if args.command == "python-env" and args.python_env_command == "list":
             return cmd_python_env_list(config, args)
+        if args.command == "python-env" and args.python_env_command == "stamp":
+            return cmd_python_env_stamp(config, args)
         if args.command == "set-python-env":
             return cmd_set_python_env(config, args)
         if args.command == "module":

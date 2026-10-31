@@ -132,6 +132,13 @@ activation.
   on disk (unlike `paths.prepend`), and Lmod removes only those entries. A
   variable is in one table or the other; `PROJ_*` names are refused. Older proj
   versions ignore the table and drop it when they rewrite a document.
+- `proj create --from NAME` copies another environment's document (never its
+  `[python.stamp]`) and records `[derived]` (`from`, `date`, `digest` of the
+  definition without the stamp); it is a snapshot, and `proj info` says when the
+  original changed. `python.spec` names a dependency file; `proj python-env stamp`
+  records its SHA-256 in `[python.stamp]`; `proj status` reports a changed file as
+  drift. proj hashes files only: it never builds, reads or runs a Python
+  environment and never reaches the network.
 - Command completion lets the everyday commands (`activate deactivate list status
   current use unuse create info`) win a shared prefix when the typed prefix
   matches one, in both `proj.bash` and `_proj`, so `proj ac<Tab>` completes
