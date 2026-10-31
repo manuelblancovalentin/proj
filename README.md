@@ -915,7 +915,7 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj activate <name>` / `proj deactivate` | Enter or leave an environment |
 | `proj remove <name> [--yes] [--delete-files\|--keep-files]` | Delete an environment, asking first |
 | `proj current` | Print the active environment |
-| `proj status` | Show the active environment and any drift |
+| `proj status [--env NAME] [--json] [--checkout PATH]` | Show the active environment and any drift, including a Python environment older than its dependency file; `--json` prints a provenance record, `--checkout` adds a Git checkout's commit |
 | `proj info [--env NAME]` | Show one environment's settings; with none selected, an overview of environments and available modules |
 | `proj config [--env NAME] <key>[=<value>]` | Read or write metadata |
 | `proj configmenu [--env NAME] [--setup]` | Edit an environment in an interactive menu |

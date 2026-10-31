@@ -139,6 +139,11 @@ activation.
   records its SHA-256 in `[python.stamp]`; `proj status` reports a changed file as
   drift. proj hashes files only: it never builds, reads or runs a Python
   environment and never reaches the network.
+- `proj status --json` is a provenance record (`docs/machine-readable.md`) with
+  no paths and no user names. Only with `--checkout PATH` does proj run Git, and
+  only `rev-parse` and `status --porcelain` with `--no-optional-locks` and
+  `core.fsmonitor=false`; it never fetches, writes, or changes a checkout. This is
+  the one place proj touches Git; it stays out of branches otherwise.
 - Command completion lets the everyday commands (`activate deactivate list status
   current use unuse create info`) win a shared prefix when the typed prefix
   matches one, in both `proj.bash` and `_proj`, so `proj ac<Tab>` completes

@@ -184,8 +184,21 @@ is required.
 .B proj current
 Print the active project name. Returns nonzero when none is active.
 .TP
-.B proj status
-Display the active project and report module or Python environment drift.
+.BR "proj status " "[--env " name "] [--json] [--checkout " path ]
+Display the active project and report module or Python environment drift. When
+the environment names a dependency file (\fBpython.spec\fR) and was stamped, a
+file that changed since is drift too (exit status 2), also for an environment
+named with
+.B --env
+that is not active. With
+.B --json
+print a record of the environment (name, modules as loaded, Python manager and
+environment, the stamped and current hashes of the dependency file) with no
+paths or user names. With
+.B --checkout
+add the commit, branch and whether the working tree differs, read with
+read-only Git queries, and say whether the checkout's copy of the dependency
+file matches the stamp. Nothing is fetched or changed.
 .TP
 .BR "proj info " "[--env " name "]"
 Render effective project metadata. With no option, select the active project

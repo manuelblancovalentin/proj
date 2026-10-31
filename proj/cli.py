@@ -666,42 +666,109 @@ def _loaded_modules() -> set[str]:
     return {item for item in os.environ.get("LOADEDMODULES", "").split(":") if item}
 
 
-def cmd_status(config: Config, _args: argparse.Namespace) -> int:
+def cmd_status(config: Config, args: argparse.Namespace) -> int:
     active = os.environ.get("PROJ_ACTIVE")
-    if not active:
+    name = args.project or active
+    checkout = Path(args.checkout).expanduser().resolve() if args.checkout else None
+    if not name:
+        if args.json:
+            print(json.dumps(_status_document(config, None, False, [], None, None, ""), indent=2))
+            return 0
         print("No project active.")
         return 0
-    project = resolve(config, active)
-    loaded = _loaded_modules()
-    expected = {
-        module
-        for category in MODULE_CATEGORIES
-        for module in project.modules.get(category, ())
-    }
-    module_loaded = project.module_name in loaded or os.environ.get("PROJ_MODULE") == project.module_name
-    python_env = project.python_environment or ""
-    if os.path.isabs(python_env):
-        current_env = os.environ.get("CONDA_PREFIX", "")
-    else:
-        current_env = os.environ.get("CONDA_DEFAULT_ENV", "")
+    project = resolve(config, name)
+    is_active = active == project.name
+    if checkout is not None and not project.python_spec:
+        raise ProjError("--checkout compares the dependency file: set python.spec first")
     drift = []
-    if not module_loaded:
-        drift.append("project module is not loaded")
-    missing = expected - loaded
-    if missing:
-        drift.append("missing modules: " + ", ".join(sorted(missing)))
-    if project.python_environment and current_env != project.python_environment:
-        drift.append(
-            f"Python environment is {current_env or 'inactive'}, "
-            f"expected {project.python_environment}"
+    if is_active:
+        loaded = _loaded_modules()
+        expected = {
+            module
+            for category in MODULE_CATEGORIES
+            for module in project.modules.get(category, ())
+        }
+        module_loaded = (
+            project.module_name in loaded
+            or os.environ.get("PROJ_MODULE") == project.module_name
         )
+        python_env = project.python_environment or ""
+        if os.path.isabs(python_env):
+            current_env = os.environ.get("CONDA_PREFIX", "")
+        else:
+            current_env = os.environ.get("CONDA_DEFAULT_ENV", "")
+        if not module_loaded:
+            drift.append("project module is not loaded")
+        missing = expected - loaded
+        if missing:
+            drift.append("missing modules: " + ", ".join(sorted(missing)))
+        if project.python_environment and current_env != project.python_environment:
+            drift.append(
+                f"Python environment is {current_env or 'inactive'}, "
+                f"expected {project.python_environment}"
+            )
+    else:
+        loaded = set()
+    build = provenance.freshness(project, checkout)
+    if build["state"] == "behind":
+        drift.append(f"Python environment is behind {build['spec']}")
+    git = provenance.git_state(checkout) if checkout is not None else None
+    if args.json:
+        document = _status_document(config, project, is_active, drift, build, git, loaded)
+        print(json.dumps(document, indent=2))
+        return 2 if drift else 0
     print(f"Project:      {project.name}")
     print(f"Root:         {project.visible_root}")
     print(f"Metadata:     {project.metadata_path}")
     print(f"Lmod module:  {project.module_name}")
     print(f"Python env:   {_python_label(config, project)}")
-    print(f"State:        {'drift: ' + '; '.join(drift) if drift else 'consistent'}")
+    if build["state"] != "no-spec":
+        print(f"Dependencies: {provenance.describe(build)}")
+    if git is not None:
+        where = git["branch"] or "a detached HEAD"
+        tree = f"{git['changed_files']} changed file(s)" if git["dirty"] else "clean"
+        print(f"Checkout:     {git['commit']} on {where}, {tree}")
+    if project.derived:
+        print(f"Copied from:  {_derived_label(config, project)}")
+    if is_active:
+        state = "drift: " + "; ".join(drift) if drift else "consistent"
+    else:
+        state = ("drift: " + "; ".join(drift) if drift else "consistent") + " (not active in this shell)"
+    print(f"State:        {state}")
     return 2 if drift else 0
+
+
+def _status_document(config, project, is_active, drift, build, git, loaded) -> dict:
+    """The provenance record: what environment a result came from. No paths and
+    no user names, so it can sit beside the results it describes."""
+    document: dict = {
+        "schema": 1,
+        "proj_version": __version__,
+        "generated": export.utc(),
+        "environment": None,
+    }
+    if project is None:
+        document["state"] = "no environment"
+        return document
+    python = export._python(config, project)
+    if python:
+        python.pop("prefix", None)
+    document["environment"] = {
+        "name": project.name,
+        "scope": access.scope(config, project),
+        "active": is_active,
+        "copied_from": project.derived.source if project.derived else None,
+    }
+    document["state"] = "drift" if drift else "consistent"
+    document["drift"] = drift
+    document["modules"] = {
+        category: list(project.modules.get(category, ())) for category in MODULE_CATEGORIES
+    }
+    document["loaded_modules"] = sorted(loaded) if is_active else None
+    document["python"] = {**(python or {}), "dependencies": build}
+    if git is not None:
+        document["checkout"] = git
+    return document
 
 
 def _python_label(config: Config, project: Project) -> str:
@@ -1213,7 +1280,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="a category (compiler, toolchain, application, project) or part of a module name",
     )
     avail.add_argument("--json", action="store_true", help="print JSON")
-    sub.add_parser("status", help="show active project state")
+    status = sub.add_parser("status", help="show active project state")
+    status.add_argument("--env", "--project", dest="project", metavar="NAME")
+    status.add_argument("--json", action="store_true", help="print a provenance record")
+    status.add_argument(
+        "--checkout",
+        metavar="PATH",
+        help="also report this Git checkout's commit and compare its dependency file",
+    )
     sub.add_parser("current", help="print the active project name")
     sub.add_parser("doctor", help="check dependencies and integration")
     sub.add_parser("install", help="link proj into the bin directory beside its checkout")

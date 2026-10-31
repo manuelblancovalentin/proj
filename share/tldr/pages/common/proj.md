@@ -104,6 +104,8 @@
 
 `proj python-env stamp --env {{project_name}}`
 
+`proj status --env {{project_name}} {{[--json] [--checkout path]}}`
+
 - Add an Lmod dependency from a supported category:
 
 `proj module add {{compiler|toolchain|application|project}} {{module/version}}`

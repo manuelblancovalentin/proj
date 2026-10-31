@@ -2,7 +2,9 @@
 
 proj does not build Python environments and is not a Git wrapper. This module
 only hashes the dependency file an environment names (`python.spec`) against the
-hash recorded when its maintainer last ran `proj python-env stamp`, and. Nothing is fetched, changed, or sent anywhere.
+hash recorded when its maintainer last ran `proj python-env stamp`, and, when a
+person asks with `--checkout`, reads a checkout's commit with three read-only
+Git queries. Nothing is fetched, changed, or sent anywhere.
 """
 
 from __future__ import annotations
@@ -10,9 +12,13 @@ from __future__ import annotations
 import getpass
 import hashlib
 import os
+import subprocess
 from pathlib import Path
 
+from .errors import ProjError
 from .metadata import Project
+
+GIT_TIMEOUT = 15
 
 
 def file_digest(path: Path) -> str | None:
@@ -93,3 +99,40 @@ def describe(report: dict) -> str:
             "differs": "; the checkout's copy differs from the stamp",
         }[report["checkout_state"]]
     return text
+
+
+def _git(checkout: Path, *arguments: str) -> str:
+    # core.fsmonitor can name a program to run; a read must not start one.
+    command = [
+        "git", "-C", str(checkout), "--no-optional-locks", "-c", "core.fsmonitor=false",
+        *arguments,
+    ]
+    environment = dict(os.environ, GIT_TERMINAL_PROMPT="0", LC_ALL="C")
+    try:
+        done = subprocess.run(
+            command, capture_output=True, text=True, timeout=GIT_TIMEOUT, env=environment
+        )
+    except FileNotFoundError as exc:
+        raise ProjError("git is not installed") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ProjError(f"git did not answer within {GIT_TIMEOUT} seconds in {checkout}") from exc
+    if done.returncode != 0:
+        detail = done.stderr.strip().splitlines()[-1:] or ["git failed"]
+        raise ProjError(f"cannot read {checkout} as a Git checkout: {detail[0]}")
+    return done.stdout
+
+
+def git_state(checkout: Path) -> dict:
+    """Commit, branch and whether the working tree differs from it (three
+    read-only queries; no paths or user names in the answer)."""
+    if not checkout.is_dir():
+        raise ProjError(f"checkout is not a folder: {checkout}")
+    commit = _git(checkout, "rev-parse", "HEAD").strip()
+    branch = _git(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    changed = [line for line in _git(checkout, "status", "--porcelain").splitlines() if line]
+    return {
+        "commit": commit,
+        "branch": None if branch == "HEAD" else branch,
+        "dirty": bool(changed),
+        "changed_files": len(changed),
+    }

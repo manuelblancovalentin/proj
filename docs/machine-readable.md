@@ -184,6 +184,58 @@ tree) and answers for the person who runs it.
 * `libraries_omitted`: how many library modules exist. Nothing else about them
   is reported, and libraries are not something a login loads.
 
+## `proj status --json`: a provenance record
+
+Where `list --json` describes every environment, this describes one environment
+and, on request, one checkout, so it can be stored beside a result. It never
+contains a path or a user name. The format (`schema` 1):
+
+```json
+{
+  "schema": 1,
+  "proj_version": "0.8.0",
+  "generated": "2026-10-30T20:09:50Z",
+  "environment": {"name": "atlas", "scope": "shared", "active": true, "copied_from": null},
+  "state": "consistent",
+  "drift": [],
+  "modules": {"project": [], "toolchain": ["cmake/3.30"], "application": [], "compiler": ["gcc/14"]},
+  "loaded_modules": ["gcc/14", "cmake/3.30", "project/atlas"],
+  "python": {
+    "manager": "conda",
+    "environment": "atlas",
+    "dependencies": {
+      "spec": "environment.yml",
+      "state": "current",
+      "stamped_sha256": "dd82557f4b9b…",
+      "stamped_date": "2026-10-12",
+      "current_sha256": "dd82557f4b9b…",
+      "checkout_sha256": "dd82557f4b9b…",
+      "checkout_state": "matches"
+    }
+  },
+  "checkout": {"commit": "63afc214ca88…", "branch": "ada/new-loss", "dirty": false, "changed_files": 0}
+}
+```
+
+- `proj status --json` describes the active environment; `--env NAME` selects
+  another. With none, `environment` is `null` and `state` is `"no environment"`.
+- `state` is `drift` (exit status 2) or `consistent`. `drift` lists the reasons:
+  modules or the Python environment not as the metadata says, or a dependency
+  file that changed since the environment was stamped.
+- `loaded_modules` is Lmod's list as loaded now (names with versions), or `null`
+  when the environment is not active in this shell.
+- `python.dependencies.state` is `no-spec`, `unreadable`, `unstamped`, `current`
+  or `behind`. The dependency file is named by its file name only. `by` of the
+  stamp is not exported.
+- `checkout` and `checkout_*` appear only with `--checkout PATH`. `checkout_state`
+  compares the checkout's copy of the file (the same name at its top, or the
+  file itself if PATH is one) with the stamp: `matches`, `differs`, `missing` or
+  `unstamped`. `branch` is `null` for a detached HEAD; `dirty` includes
+  untracked files.
+- The Git queries are `rev-parse HEAD`, `rev-parse --abbrev-ref HEAD` and `status
+  --porcelain`, read-only, without optional locks or fsmonitor, with a 15 second
+  limit. Nothing is fetched. A key may be added without raising `schema`.
+
 ## Login modules and environments
 
 A login (site defaults, then a person's own choices) may already have modules

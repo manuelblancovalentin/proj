@@ -211,6 +211,13 @@ case $words[2] in
       _values 'option' --env
     fi
     ;;
+  status)
+    if [[ ${words[CURRENT-1]-} == --checkout ]]; then
+      _directories
+    else
+      _values 'option' --env --json --checkout
+    fi
+    ;;
   configmenu)
     _values 'option' --env --setup
     ;;

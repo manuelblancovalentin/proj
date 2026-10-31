@@ -101,6 +101,14 @@ _proj_complete() {
       info)
         candidates=--env
         ;;
+      status)
+        if [[ $prev == --checkout ]]; then
+          compopt -o default 2>/dev/null
+          COMPREPLY=()
+          return 0
+        fi
+        candidates=$'--env\n--json\n--checkout'
+        ;;
       avail)
         candidates=$'compiler\ntoolchain\napplication\nproject\n--json'
         ;;
