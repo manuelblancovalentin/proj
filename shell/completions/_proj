@@ -96,6 +96,20 @@ python_actions=('list:List Python environments')
 # _arguments state machine. It mirrors argparse exactly and remains predictable
 # for commands with several positional choices.
 if (( CURRENT == 2 )); then
+  # The everyday commands win a shared prefix, so "proj a<Tab>" and
+  # "proj ac<Tab>" complete activate even though avail and access also start
+  # that way. They stay reachable by typing one more letter, and an empty
+  # prefix lists everything. Keep this list identical to proj.bash.
+  local -a everyday=(activate deactivate list status current use unuse create info)
+  local -a preferred=()
+  local entry
+  if [[ -n $PREFIX ]]; then
+    for entry in $commands; do
+      (( ${everyday[(Ie)${entry%%:*}]} )) && [[ ${entry%%:*} == ${PREFIX}* ]] &&
+        preferred+=("$entry")
+    done
+  fi
+  (( ${#preferred} )) && commands=("${preferred[@]}")
   _describe 'proj command' commands
   return
 fi

@@ -138,6 +138,15 @@ _proj_complete() {
     esac
   fi
   COMPREPLY=($(compgen -W "$candidates" -- "$cur"))
+  if (( COMP_CWORD == 1 )) && [[ -n $cur ]]; then
+    # The everyday commands win a shared prefix, so "proj a<Tab>" and
+    # "proj ac<Tab>" complete activate even though avail and access also
+    # start that way. Keep this list identical to the zsh completion.
+    local everyday=$'activate\ndeactivate\nlist\nstatus\ncurrent\nuse\nunuse\ncreate\ninfo'
+    local preferred
+    preferred=$(compgen -W "$everyday" -- "$cur")
+    [[ -n $preferred ]] && COMPREPLY=($preferred)
+  fi
 }
 
 complete -F _proj_complete proj

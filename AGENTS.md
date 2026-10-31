@@ -125,6 +125,11 @@ activation.
   `AccessDenied`, with no path printed) and never names it: `proj list` sums them up in one
   line on stderr, `proj list --json` reports the count as `unreadable` (and
   `skipped` stays for invalid documents).
+- Command completion lets the everyday commands (`activate deactivate list status
+  current use unuse create info`) win a shared prefix when the typed prefix
+  matches one, in both `proj.bash` and `_proj`, so `proj ac<Tab>` completes
+  `activate`. An empty prefix lists everything. Keep both lists identical and
+  covered by `tests/run`.
 - Precedence is private, shared, then extra roots; a private environment
   shadows a shared one with the same name.
 - `proj share`/`proj unshare` move an environment between your private and the

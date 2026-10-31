@@ -965,7 +965,11 @@ process, so it adds a couple of milliseconds to shell startup. The adapter:
 - shows `[proj:<name>]` in the prompt while an environment is active (see
   [The prompt segment](#the-prompt-segment));
 - registers completion for commands, options, environment names, Python
-  environments, and Lmod modules, computed only when you press Tab;
+  environments, and Lmod modules, computed only when you press Tab. The
+  everyday commands (`activate deactivate list status current use unuse create
+  info`) win a shared prefix, so `proj a<Tab>` and `proj ac<Tab>` complete
+  `activate`; `proj acc<Tab>` gives `access` and `proj av<Tab>` gives `avail`,
+  and `proj <Tab><Tab>` lists everything;
 - adds a `mamba` alias for `micromamba` at the first prompt, unless a real
   `mamba` exists;
 - uses the dots shell framework's `ok`/`info`/`error` helpers and panel for

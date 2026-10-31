@@ -94,6 +94,48 @@ completion_state=$(zsh -f -c '
 [ "$completion_state" = _proj ] || fail "early completion registration"
 pass "native completion registers without startup-time project discovery"
 
+# The everyday commands win a shared prefix: "proj ac<Tab>" must reach activate
+# even though access (and avail, for "a") share the prefix.
+bash_command_completion() {
+  bash -c '
+    source "$1/shell/completions/proj.bash"
+    _proj_cli() { :; }
+    COMP_WORDS=(proj "$2"); COMP_CWORD=1
+    _proj_complete
+    echo "${COMPREPLY[*]}"
+  ' bash "$root" "$1"
+}
+zsh_command_completion() {
+  zsh -f -c '
+    _describe() {
+      local entry
+      local -a names; names=("${(@P)2}")
+      for entry in $names; do
+        [[ ${entry%%:*} == ${PREFIX}* ]] && print -n -- "${entry%%:*} "
+      done
+      print
+    }
+    run() { source "$1/shell/completions/_proj" }
+    words=(proj "$2"); CURRENT=2; PREFIX=$2
+    run "$1" "$2"
+  ' zsh "$root" "$1" | sed 's/ *$//'
+}
+for shell_kind in bash zsh; do
+  for case_ in 'a:activate' 'ac:activate' 'act:activate' 'acc:access' 'av:avail' \
+      'de:deactivate' 'u:use unuse'; do
+    typed=${case_%%:*}; expected=${case_#*:}
+    got=$(${shell_kind}_command_completion "$typed")
+    [ "$got" = "$expected" ] ||
+      fail "$shell_kind completion of 'proj $typed': got '$got', expected '$expected'"
+  done
+  all=$(${shell_kind}_command_completion "")
+  for name in activate access avail share unshare remove; do
+    printf '%s\n' "$all" | tr ' ' '\n' | grep -qx "$name" ||
+      fail "$shell_kind completion of an empty prefix lacks $name"
+  done
+done
+pass "proj a<Tab> and proj ac<Tab> complete activate in Bash and Zsh"
+
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root" \
   /usr/bin/python3 -m unittest discover -s "$root/tests" -p 'test_*.py' \
   >/dev/null || fail "Python unit tests"

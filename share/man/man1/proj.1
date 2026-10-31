@@ -394,7 +394,15 @@ completion directory to
 and supports both earlier and later
 .B compinit
 ordering. Commands, project names, configuration keys, module categories, and
-Python environments are completed. Metadata discovery is deferred until
+Python environments are completed. The everyday commands (activate, deactivate,
+list, status, current, use, unuse, create, info) win a shared prefix, so
+.B proj ac<Tab>
+completes
+.BR activate ;
+type one more letter for
+.B access
+or
+.BR avail . Metadata discovery is deferred until
 completion is requested.
 .PP
 For module changes, completion proceeds from action to category to module.
