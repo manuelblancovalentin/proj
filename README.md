@@ -67,6 +67,7 @@ If you found this work useful, please consider citing it:
   - [Python environments](#python-environments)
   - [Variables, paths, and aliases](#variables-paths-and-aliases)
   - [Hooks](#hooks)
+  - [Working on software in a shared project](#working-on-software-in-a-shared-project)
   - [The configuration menu](#the-configuration-menu)
   - [Removing and renaming](#removing-and-renaming)
 - [Toolchains and components (Lmod modules)](#toolchains-and-components-lmod-modules)
@@ -444,6 +445,27 @@ proj config hooks.shutdown='[["./scripts/stop-services"]]'
 A failing startup hook aborts activation and rolls it back. Hooks run as
 child processes, so they cannot change your shell; anything they start
 outside the shell (servers, mounts) needs a matching shutdown hook.
+
+### Working on software in a shared project
+
+When a team develops a package that the shared environment also installs, proj
+stays out of Git and gives each person a way to put their own clone first. The
+full recipe, with the reasons, is in
+[docs/shared-software-projects.md](docs/shared-software-projects.md). In short:
+
+```sh
+# Put your clone ahead of the installed package, for you only, undone on deactivate:
+proj config --env atlas 'environment_paths.PYTHONPATH.prepend=["${user.home}/atlas/repo/src"]'
+
+# A branch that changes dependencies: copy the environment and give it its own Python:
+proj create atlas-topic --from atlas --python atlas-topic
+
+# Say which file the Python environment is built from, and stamp it after each rebuild:
+proj config --env atlas python.spec=/projects/atlas/environment.yml
+proj python-env stamp --env atlas
+proj status --env atlas                       # exit 2 when the file changed since
+proj status --json --checkout ~/atlas/repo    # a record of environment and commit
+```
 
 ### The configuration menu
 
