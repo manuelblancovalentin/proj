@@ -40,6 +40,15 @@ class PathVariable:
 
 
 @dataclass(frozen=True)
+class Derived:
+    """The environment this one was copied from by `proj create --from`."""
+
+    source: str
+    date: str
+    digest: str
+
+
+@dataclass(frozen=True)
 class Command:
     description: str
     argv: tuple[str, ...]
@@ -58,6 +67,7 @@ class Project:
     shown_root: Path | None = None
     python_manager: str | None = None
     python_environment: str | None = None
+    derived: Derived | None = None
     modules: dict[str, tuple[str, ...]] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
     environment_paths: dict[str, PathVariable] = field(default_factory=dict)
@@ -148,6 +158,23 @@ def _path_variables(
     return result
 
 
+def _text_fields(value: Any, label: str, fields: tuple[str, ...], source: Path):
+    if not isinstance(value, dict) or set(value) != set(fields):
+        raise MetadataError(f"{source}: [{label}] needs exactly: " + ", ".join(fields))
+    if not all(isinstance(value[field], str) and value[field] for field in fields):
+        raise MetadataError(f"{source}: [{label}] values must be non-empty strings")
+    return [value[field] for field in fields]
+
+
+def _derived(value: Any, source: Path) -> Derived | None:
+    if value is None:
+        return None
+    origin, date, digest = _text_fields(value, "derived", ("from", "date", "digest"), source)
+    if not NAME_RE.fullmatch(origin):
+        raise MetadataError(f"{source}: derived.from is not an environment name")
+    return Derived(origin, date, digest)
+
+
 def _hooks(value: Any, label: str, source: Path) -> tuple[Hook, ...]:
     if value is None:
         return ()
@@ -210,6 +237,7 @@ def load_project(metadata_path: Path) -> Project:
     python_data = _table(data, "python", metadata_path)
     python_manager = _string(python_data, "manager", metadata_path)
     python_environment = _string(python_data, "environment", metadata_path)
+    derived = _derived(data.get("derived"), metadata_path)
     # Without a manager, the environment uses the configured default manager.
     if python_manager and python_manager not in PYTHON_MANAGERS:
         raise MetadataError(
@@ -292,6 +320,7 @@ def load_project(metadata_path: Path) -> Project:
         shown_root=written if written.is_absolute() and ".." not in written.parts else None,
         python_manager=python_manager,
         python_environment=python_environment,
+        derived=derived,
         modules=modules,
         environment=dict(environment),
         environment_paths=environment_paths,

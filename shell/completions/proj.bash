@@ -31,6 +31,8 @@ _proj_complete() {
     candidates=$'micromamba\nconda\nmamba'
   elif [[ $prev == --use ]]; then
     candidates=$(_proj_cli _complete uses 2>/dev/null)
+  elif [[ $command == create && $prev == --from ]]; then
+    candidates=$(_proj_cli _complete projects 2>/dev/null)
   elif [[ $command == create && $prev == --root ]] ||
        [[ $command == init && $prev == --rc ]]; then
     compopt -o default 2>/dev/null

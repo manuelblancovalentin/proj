@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -39,6 +40,17 @@ def _toml(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     raise ProjError(f"unsupported configuration value: {value!r}")
+
+
+def document_digest(data: dict[str, Any]) -> str:
+    """Identify an environment's definition, ignoring what only records its
+    history (the derived table and the Python stamp)."""
+    content = json.loads(json.dumps(data))
+    content.pop("derived", None)
+    content.get("python", {}).pop("stamp", None)
+    return hashlib.sha256(
+        json.dumps(content, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
 
 
 def load_document(path: Path) -> dict[str, Any]:
@@ -132,6 +144,11 @@ def render_document(data: dict[str, Any]) -> str:
         lines.append(f"shutdown = {_toml(hooks['shutdown'])}")
     else:
         lines.append("# shutdown = []")
+
+    if data.get("derived"):
+        lines.extend(("", "[derived]"))
+        for field in ("from", "date", "digest"):
+            lines.append(f"{field} = {_toml(data['derived'][field])}")
 
     if commands:
         for name, command in sorted(commands.items()):

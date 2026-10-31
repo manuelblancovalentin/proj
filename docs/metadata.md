@@ -60,6 +60,11 @@ command = ["./scripts/build"]
 `python.environment` is an environment name or an absolute prefix path; shared environments store the
 prefix so that every member resolves the same environment.
 
+A `[derived]` table (`from`, `date`, `digest`) is written by `proj create
+--from` and records which environment this one was copied from and a digest of
+its definition then (ignoring the stamp), so `proj info` can say when the
+original changed. Neither table is settable with `proj config`.
+
 `[environment]` variables are set with Lmod `pushenv`: the person's previous
 value comes back when the environment ends. `[environment_paths.<VARIABLE>]`
 takes `prepend` and `append` arrays for list variables (`PYTHONPATH`, `PATH`,

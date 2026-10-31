@@ -96,6 +96,10 @@
 
 `proj config environment_paths.PYTHONPATH.prepend='["${user.home}/{{project}}/repo/src"]'`
 
+- Copy an environment for a branch with other dependencies:
+
+`proj create {{new_name}} --from {{project_name}} --python {{python_environment}}`
+
 - Add an Lmod dependency from a supported category:
 
 `proj module add {{compiler|toolchain|application|project}} {{module/version}}`

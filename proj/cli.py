@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import datetime
 import hashlib
 import json
 import os
@@ -20,6 +21,7 @@ from .discovery import discover, resolve, scan
 from .doctor import run_checks
 from .editor import (
     create_document,
+    document_digest,
     get_dotted,
     load_document,
     parse_value,
@@ -319,7 +321,17 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         raise ProjError(
             "project names may contain letters, numbers, dots, underscores, and dashes"
         )
-    root = Path(args.root or os.getcwd()).expanduser().resolve()
+    original = None
+    original_data: dict = {}
+    if args.copy_from:
+        original = resolve(config, args.copy_from)
+        original_data = load_document(original.metadata_path)
+    if args.root:
+        root = Path(args.root).expanduser().resolve()
+    elif original is not None:
+        root = original.root
+    else:
+        root = Path(os.getcwd()).resolve()
     if not root.is_dir():
         raise ProjError(f"project root does not exist: {root}")
     for flag, given in (
@@ -347,7 +359,25 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
         )
     else:
         metadata_path = config.registry / args.name / "project.toml"
-    create_document(metadata_path, args.name, root, mode, config.python_manager)
+    if original is not None:
+        # A snapshot: the same modules, variables, paths, aliases and hooks under
+        # a new name. The original's build stamp does not describe a new Python
+        # environment, so it is not copied.
+        data = json.loads(json.dumps(original_data))
+        data["project"]["name"] = args.name
+        if args.root:
+            data["project"]["root"] = str(root)
+        data.get("python", {}).pop("stamp", None)
+        data["derived"] = {
+            "from": original.name,
+            "date": datetime.date.today().isoformat(),
+            "digest": document_digest(original_data),
+        }
+        if metadata_path.exists():
+            raise ProjError(f"environment {args.name!r} already exists at {metadata_path}")
+        write_document(metadata_path, data, mode)
+    else:
+        create_document(metadata_path, args.name, root, mode, config.python_manager)
     if initial:
         document = load_document(metadata_path)
         for category in MODULE_CATEGORIES:
@@ -358,6 +388,8 @@ def cmd_create(config: Config, args: argparse.Namespace) -> int:
     project = load_project(metadata_path)
     print(f"Environment {args.name!r} successfully created.")
     print(f"Metadata and configuration present at {metadata_path}")
+    if original is not None:
+        print(f"Copied from {original.name!r}; later changes to it are not followed.")
     if args.shared:
         print(f"Scope: {access.describe_scope(config, project)}")
     if initial:
@@ -422,6 +454,8 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
         ("Python manager", python_envs.manager_for(config, project)),
         ("Python environment", project.python_environment or "not configured"),
     ]
+    if project.derived:
+        rows.append(("Copied from", _derived_label(config, project)))
     for category in MODULE_CATEGORIES:
         rows.append(
             (
@@ -454,6 +488,19 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
         for name, command in sorted(project.commands.items())
     )
     return rows
+
+
+def _derived_label(config: Config, project: Project) -> str:
+    """Say which environment this was copied from, and whether that one has
+    changed since (a snapshot does not follow it)."""
+    derived = project.derived
+    try:
+        original = resolve(config, derived.source)
+        changed = document_digest(load_document(original.metadata_path)) != derived.digest
+    except ProjError:
+        return f"{derived.source} on {derived.date} (the original is no longer readable)"
+    note = "; the original has changed since" if changed else ""
+    return f"{derived.source} on {derived.date}{note}"
 
 
 def cmd_info(config: Config, args: argparse.Namespace) -> int:
@@ -1146,6 +1193,12 @@ def build_parser() -> argparse.ArgumentParser:
     create = sub.add_parser("create", help="register a project environment")
     create.add_argument("name")
     create.add_argument("--root")
+    create.add_argument(
+        "--from",
+        dest="copy_from",
+        metavar="NAME",
+        help="start from a copy of this environment (modules, variables, paths, hooks)",
+    )
     create.add_argument(
         "--use",
         action="append",

@@ -163,6 +163,8 @@ case $words[2] in
       _directories
     elif [[ ${words[CURRENT-1]-} == --use ]]; then
       _proj_use_names
+    elif [[ ${words[CURRENT-1]-} == --from ]]; then
+      _proj_project_names
     elif (( CURRENT >= 4 )); then
       _values 'option' --root --shared --group --group-writable --private --use
     fi
