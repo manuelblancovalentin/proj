@@ -93,6 +93,121 @@ _proj_cli() {
 
 _proj_clear_shell_state() {
   unset PROJ_PREVIOUS_PWD PROJ_MAMBA_SHLVL_BEFORE PROJ_LOGIN_MODULES
+  _proj_prompt_end
+}
+
+# Prompt tokens. While an environment is active the prompt marker may carry a
+# few small emoji, each shown while an environment variable is set (the Python
+# token while CONDA_PREFIX is, the wolf token while WOLF_ACTIVE_ENV is). The
+# table comes from proj's configuration and is passed in at activation; the
+# adapters evaluate it at every prompt with shell builtins only, so a
+# `conda activate` or `wolf activate` typed inside the environment shows up at
+# the next prompt. The table is exported as PROJ_PROMPT_TABLE (one
+# `name|emoji|plain|VARIABLE` row per line) so a shell started inside the
+# environment draws the same tokens; PROJ_PROMPT_TOKENS lists the token names
+# proj draws, for other tools (a tool that draws its own marker hides it while
+# its name is listed). Both exist only while an environment is active and proj
+# is the one drawing the marker.
+#
+# Inside an environment the Python manager's own "(environment)" prefix is
+# switched off (CONDA_CHANGEPS1 for conda and mamba, MAMBA_CHANGEPS1 for
+# micromamba), and only while the python token is there to say the same thing.
+# The person's own values come back when the environment ends; a prefix already
+# in the prompt before activation is not touched.
+
+# Whether proj will draw the marker: PROJ_PROMPT=off leaves the prompt alone,
+# and in Zsh a framework that draws the badge itself (dots) takes over.
+_proj_prompt_drawn() {
+  case ${PROJ_PROMPT-auto} in off|never|0) return 1 ;; esac
+  if [ -n "${ZSH_VERSION-}" ] && _proj_is_function dots_prompt_apply; then
+    case ${DOTS_PROMPT:-always} in never|0) ;; *) return 1 ;; esac
+  fi
+  return 0
+}
+
+# Succeeds when the tokens should be written in ASCII: the person asked for it
+# (PROJ_PLAIN_PROMPT), the terminal is the Linux console or "dumb", or the
+# locale is not UTF-8.
+_proj_prompt_is_plain() {
+  case ${PROJ_PLAIN_PROMPT-} in ''|0|off|no|false) ;; *) return 0 ;; esac
+  case ${TERM-} in linux|dumb) return 0 ;; esac
+  case ${LC_ALL:-${LC_CTYPE:-${LANG-}}} in
+    *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) return 1 ;;
+  esac
+  return 0
+}
+
+# Set _proj_prompt_text to the tokens to show now, separated by spaces.
+_proj_prompt_tokens() {
+  _proj_prompt_text=
+  [ -n "${PROJ_PROMPT_TABLE-}" ] || return 0
+  local rest=$PROJ_PROMPT_TABLE row name glyph plain variable value text= use_plain=0
+  local nl='
+'
+  _proj_prompt_is_plain && use_plain=1
+  while [ -n "$rest" ]; do
+    row=${rest%%"$nl"*}
+    case $rest in
+      *"$nl"*) rest=${rest#*"$nl"} ;;
+      *) rest= ;;
+    esac
+    name=${row%%|*}; row=${row#*|}
+    glyph=${row%%|*}; row=${row#*|}
+    plain=${row%%|*}; variable=${row#*|}
+    case $variable in ''|[0-9]*|*[!A-Za-z0-9_]*) continue ;; esac
+    eval "value=\${$variable-}"
+    [ -n "$value" ] || continue
+    if [ "$use_plain" = 1 ] || [ -z "$glyph" ]; then glyph=$plain; fi
+    text=${text:+$text }$glyph
+  done
+  _proj_prompt_text=$text
+}
+
+# A plain shell variable, never exported: used for the person's own values that
+# are put back when the environment ends.
+_proj_unexport() {
+  if [ -n "${ZSH_VERSION-}" ]; then typeset -g +x "$1"; else export -n "$1"; fi
+}
+
+_proj_prompt_begin() {
+  [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
+  local table=${1-} hide_prefix=${2-1} variable names= row rest nl='
+'
+  _proj_prompt_end
+  [ -n "$table" ] || return 0
+  _proj_prompt_drawn || return 0
+  export PROJ_PROMPT_TABLE=$table
+  rest=$table
+  while [ -n "$rest" ]; do
+    row=${rest%%"$nl"*}
+    case $rest in
+      *"$nl"*) rest=${rest#*"$nl"} ;;
+      *) rest= ;;
+    esac
+    names=${names:+$names }${row%%|*}
+  done
+  export PROJ_PROMPT_TOKENS=$names
+  case " $names " in *" python "*) ;; *) return 0 ;; esac
+  [ "$hide_prefix" = 1 ] || return 0
+  for variable in CONDA_CHANGEPS1 MAMBA_CHANGEPS1; do
+    eval "if [ \"\${$variable+set}\" = set ]; then _PROJ_SAVED_$variable=\"set:\$$variable\"; else _PROJ_SAVED_$variable=unset; fi"
+    _proj_unexport "_PROJ_SAVED_$variable"
+    export "$variable=false"
+  done
+}
+
+_proj_prompt_end() {
+  [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
+  local variable saved
+  for variable in CONDA_CHANGEPS1 MAMBA_CHANGEPS1; do
+    eval "saved=\${_PROJ_SAVED_$variable-}"
+    case $saved in
+      set:*) export "$variable=${saved#set:}" ;;
+      unset) unset "$variable" ;;
+    esac
+    unset "_PROJ_SAVED_$variable"
+  done
+  unset PROJ_PROMPT_TABLE PROJ_PROMPT_TOKENS
 }
 
 # Remember which modules the login had loaded, for _proj_restore_login_modules.
@@ -176,6 +291,7 @@ _proj_activate() {
   local project_name=$1 project_root=$2 module_name=$3 module_path=$4
   local mamba_env=$5 metadata=$6 change_directory=$7 run_hooks=$8
   local python_manager=${9:-micromamba} restore_login=${10:-1}
+  local prompt_table=${11-} hide_prefix=${12:-1}
   local previous_pwd=$PWD
   local previous_shlvl=${CONDA_SHLVL:-0}
 
@@ -200,6 +316,7 @@ _proj_activate() {
 
   export PROJ_PREVIOUS_PWD=$previous_pwd
   export PROJ_MAMBA_SHLVL_BEFORE=$previous_shlvl
+  _proj_prompt_begin "$prompt_table" "$hide_prefix"
 
   if [ -n "$mamba_env" ]; then
     if ! _proj_select_python_command "$python_manager"; then

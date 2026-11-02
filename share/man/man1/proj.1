@@ -373,7 +373,11 @@ and
 .BR library_names .
 .TP
 .I ~/.config/proj/config.toml
-Optional user configuration; overrides site keys.
+Optional user configuration; overrides site keys. Its
+.B [prompt]
+table sets the prompt tokens (show_tokens, hide_manager_prefix, plain, and one
+[[prompt.token]] row of name, emoji, plain and when for each token); see
+.IR docs/prompt-markers.md .
 .TP
 .I ~/.cache/proj/modulefiles
 Generated Lmod modulefile cache.
@@ -414,6 +418,22 @@ framework that draws the badge from
 (dots) takes precedence, and
 .B NO_COLOR
 makes the segment plain.
+.TP
+.B PROJ_PLAIN_PROMPT
+Anything but empty, 0, off, no or false writes the prompt tokens in ASCII (py,
+wolf) instead of emoji. The ASCII form is also used when the locale is not
+UTF-8 and when
+.B TERM
+is linux or dumb.
+.TP
+.B PROJ_PROMPT_TOKENS
+Set by proj while an environment is active and proj draws the prompt marker: the
+names of the tokens it shows, separated by spaces (python wolf). Another tool
+that draws its own marker hides it while its name is listed. Unset otherwise.
+Together with
+.B PROJ_ACTIVE
+(the environment's name), this is what other tools read. See
+.IR docs/prompt-markers.md .
 .TP
 .B PROJ_PROJECT_ROOTS
 Colon-separated additional metadata roots.

@@ -1351,6 +1351,171 @@ EOF
 zsh -f -i "$tmp/prompt-test.zsh" "$root" >/dev/null 2>&1 || fail "Zsh prompt segment (step $?)"
 pass "the prompt shows [proj:<name>] while an environment is active, in Bash and Zsh"
 
+# Prompt tokens: emoji in the marker for a Python or wolf environment, read at every
+# prompt; the Python manager's own prefix is off only while proj is active.
+snake=$(printf '\360\237\220\215'); wolf_glyph=$(printf '\360\237\220\272')
+pt_env() {
+  LC_ALL=C.UTF-8 TERM=xterm PROJ_HOME="$tmp/pt-home" PROJ_CACHE_HOME="$tmp/pt-cache" \
+    PROJ_PYTHON_MANAGER=conda PROJ_SITE_CONFIG="$tmp/none.toml" "$@"
+}
+mkdir -p "$tmp/pt-root"
+for pt_name in pt ptbad; do
+  pt_env env PROJ_CONFIG="$tmp/none.toml" "$root/bin/proj" create "$pt_name" --root "$tmp/pt-root" >/dev/null ||
+    fail "prompt token fixture"
+done
+pt_env env PROJ_CONFIG="$tmp/none.toml" "$root/bin/proj" config --env pt python.environment=ptenv >/dev/null
+pt_env env PROJ_CONFIG="$tmp/none.toml" "$root/bin/proj" config --env ptbad python.environment=bad >/dev/null
+printf 'schema = 1\n\n[prompt]\nshow_tokens = false\n' >"$tmp/pt-notokens.toml"
+printf 'schema = 1\n\n[prompt]\nhide_manager_prefix = false\n' >"$tmp/pt-keep.toml"
+printf 'schema = 1\n\n[prompt]\nplain = true\n' >"$tmp/pt-plain.toml"
+cat >"$tmp/prompt-tokens.sh" <<'EOF'
+init=$1; kind=$2; mode=$3; env=${4:-pt}
+unset NO_COLOR PROJ_PLAIN_PROMPT DOTS_PROMPT MAMBA_CHANGEPS1 WOLF_ACTIVE_ENV
+[ "$mode" = promptoff ] && export PROJ_PROMPT=off || unset PROJ_PROMPT
+export CONDA_CHANGEPS1=true   # the person's own value
+check() { [ "$2" = "$3" ] || { printf 'step %s: got [%s] want [%s]\n' "$1" "$2" "$3" >&2; exit 1; }; }
+module() {
+  case $1 in
+    load) export PROJ_ACTIVE=${2#project/} PROJ_MODULE=$2 ;;
+    unload) unset PROJ_ACTIVE PROJ_MODULE ;;
+  esac
+  return 0
+}
+# A conda that follows CONDA_CHANGEPS1 the way the real one does, with a stack of environments.
+conda() {
+  case $1 in
+    activate)
+      [ "$2" = bad ] && return 1
+      _stack=${_stack:+$_stack:}$2
+      export CONDA_DEFAULT_ENV=$2 CONDA_PREFIX=/envs/$2 CONDA_SHLVL=$(( ${CONDA_SHLVL:-0} + 1 ))
+      [ "${CONDA_CHANGEPS1-true}" = false ] || ps_set "($2) $(ps_get)" ;;
+    deactivate)
+      case $_stack in *:*) _stack=${_stack%:*}; export CONDA_DEFAULT_ENV=${_stack##*:} CONDA_PREFIX=/envs/${_stack##*:} ;;
+        *) _stack=; unset CONDA_DEFAULT_ENV CONDA_PREFIX ;; esac
+      export CONDA_SHLVL=$(( CONDA_SHLVL - 1 )) ;;
+  esac
+}
+. "$init"
+case $mode in
+  dots) dots_prompt_apply() { :; } ;;
+  dotsnever) dots_prompt_apply() { :; }; export DOTS_PROMPT=never ;;
+esac
+if [ "$kind" = zsh ]; then
+  ps_get() { printf '%s' "$PROMPT"; }; ps_set() { PROMPT=$1; }
+  render() { print -P -- "$PROMPT" | sed 's/\x1b\[[0-9;]*m//g'; }
+else
+  ps_get() { printf '%s' "$PS1"; }; ps_set() { PS1=$1; }
+  render() { printf '%s' "${PS1@P}" | sed -e 's/[\x01\x02]//g' -e 's/\x1b\[[0-9;]*m//g'; printf '\n'; }
+fi
+segment() { _proj_prompt_update; printf '%s' "$PROJ_PROMPT_SEGMENT" | sed -e 's/[\x01\x02]//g' -e 's/\x1b\[[0-9;]*m//g' -e 's/%F{[a-z0-9]*}//g' -e 's/%f//g'; printf '\n'; }
+now() { _proj_prompt_update; render; }
+ps_set 'own> '
+conda activate outer
+check 1 "$(now)" '(outer) own> '                 # outside proj: conda's own prefix, as today
+check 2 "${CONDA_CHANGEPS1-unset}" true           # and proj has touched nothing
+proj activate "$env" >/dev/null 2>&1; code=$?
+if [ "$mode" = fail ]; then
+  [ $code -ne 0 ] || { echo "a failing Python activation must fail" >&2; exit 1; }
+  check 3 "${CONDA_CHANGEPS1-unset}/${MAMBA_CHANGEPS1-unset}/${PROJ_PROMPT_TOKENS-unset}" 'true/unset/unset'
+  check 4 "$(now)" '(outer) own> '
+  exit 0
+fi
+[ $code -eq 0 ] || { echo "proj activate failed ($code)" >&2; exit 1; }
+case $mode in
+  notokens)
+    check 5 "$(now)" '[proj:pt] (ptenv) (outer) own> '
+    check 6 "${PROJ_PROMPT_TOKENS-unset}/${CONDA_CHANGEPS1-unset}" 'unset/true'
+    check 7 "$(segment)" '[proj:pt]' ;;
+  keep)
+    check 5 "${CONDA_CHANGEPS1-unset}/${PROJ_PROMPT_TOKENS-unset}" 'true/python wolf'
+    check 6 "$(segment)" "[proj:pt $PT_SNAKE]" ;;
+  promptoff)
+    check 5 "${CONDA_CHANGEPS1-unset}/${PROJ_PROMPT_TOKENS-unset}" 'true/unset' ;;
+  plainconfig)
+    check 5 "$(segment)" '[proj:pt py]' ;;
+  dots)
+    check 5 "${CONDA_CHANGEPS1-unset}/${PROJ_PROMPT_TOKENS-unset}" 'true/unset' ;;
+  default|dotsnever)
+    check 5 "${PROJ_PROMPT_TOKENS-unset}" 'python wolf'
+    check 6 "$(sh -c 'printf %s "$PROJ_PROMPT_TOKENS/$CONDA_CHANGEPS1/$MAMBA_CHANGEPS1"')" 'python wolf/false/false'
+    # The token is evaluated at the prompt. Python is there because proj activated it.
+    check 7 "$(now)" "[proj:pt $PT_SNAKE] (outer) own> "
+    # conda's prefix stays off inside proj, for an environment activated here too.
+    conda activate inner
+    check 8 "$(now)" "[proj:pt $PT_SNAKE] (outer) own> "
+    export WOLF_ACTIVE_ENV=maple
+    check 9 "$(now)" "[proj:pt $PT_SNAKE $PT_WOLF] (outer) own> "
+    unset WOLF_ACTIVE_ENV
+    check 10 "$(now)" "[proj:pt $PT_SNAKE] (outer) own> "
+    conda deactivate
+    # The plain form: asked for, a console or dumb terminal, or no UTF-8 locale.
+    check 11 "$(PROJ_PLAIN_PROMPT=1 now)" '[proj:pt py] (outer) own> '
+    check 12 "$(TERM=dumb now)" '[proj:pt py] (outer) own> '
+    check 13 "$(TERM=linux now)" '[proj:pt py] (outer) own> '
+    check 14 "$(LC_ALL=C now)" '[proj:pt py] (outer) own> '
+    check 15 "$(PROJ_PLAIN_PROMPT=0 now)" "[proj:pt $PT_SNAKE] (outer) own> "
+    NO_COLOR=1 _proj_prompt_update
+    check 16 "$PROJ_PROMPT_SEGMENT" "[proj:pt $PT_SNAKE]"
+    unset NO_COLOR ;;
+esac
+proj deactivate >/dev/null 2>&1 || { echo "proj deactivate failed" >&2; exit 1; }
+check 20 "${CONDA_CHANGEPS1-unset}/${MAMBA_CHANGEPS1-unset}" 'true/unset'
+check 21 "${PROJ_PROMPT_TOKENS-unset}/${PROJ_PROMPT_TABLE-unset}/${_PROJ_SAVED_CONDA_CHANGEPS1-unset}" 'unset/unset/unset'
+case $mode in default|dotsnever|plainconfig) ;; *) exit 0 ;; esac
+_proj_prompt_update   # the hook runs in the shell itself at every prompt
+check 22 "$(now)" '(outer) own> '
+conda activate later
+check 23 "$(now)" '(later) (outer) own> '        # outside proj again: conda's own prefix
+EOF
+export PT_SNAKE=$snake PT_WOLF=$wolf_glyph
+for pt_shell in bash zsh; do
+  pt_flags='--norc --noprofile'; [ "$pt_shell" = zsh ] && pt_flags='-f -i'
+  pt_run() { # pt_run <mode> [config] [env]
+    pt_env env PROJ_CONFIG="${2:-$tmp/none.toml}" $pt_shell $pt_flags "$tmp/prompt-tokens.sh" \
+      "$root/shell/init.$pt_shell" "$pt_shell" "$1" "${3:-pt}" 2>&1
+  }
+  out=$(pt_run default) || fail "$pt_shell prompt tokens: $out"
+  out=$(pt_run notokens "$tmp/pt-notokens.toml") || fail "$pt_shell prompt tokens off: $out"
+  out=$(pt_run keep "$tmp/pt-keep.toml") || fail "$pt_shell keeping the manager prefix: $out"
+  out=$(pt_run plainconfig "$tmp/pt-plain.toml") || fail "$pt_shell plain tokens by configuration: $out"
+  out=$(pt_run promptoff) || fail "$pt_shell PROJ_PROMPT=off: $out"
+  if [ "$pt_shell" = zsh ]; then
+    out=$(pt_run dots) || fail "zsh: a framework that draws the badge keeps the manager prefix: $out"
+    out=$(pt_run dotsnever) || fail "zsh: DOTS_PROMPT=never lets proj draw the tokens: $out"
+  fi
+  out=$(pt_run fail "" ptbad) || fail "$pt_shell failed Python activation restores the prefix switch: $out"
+done
+
+# The real micromamba: with the switch proj sets it adds no prefix; without it, it does.
+if command -v micromamba >/dev/null 2>&1; then
+  mkdir -p "$tmp/mm-root" "$tmp/mm-prefix/conda-meta"
+  cat >"$tmp/mm-test.sh" <<'EOF'
+init=$1; kind=$2; prefix=$3
+export MAMBA_ROOT_PREFIX=$4 LC_ALL=C.UTF-8 TERM=xterm
+unset MAMBA_CHANGEPS1 CONDA_CHANGEPS1 PROJ_PROMPT
+eval "$(micromamba shell hook -s "$kind")"
+. "$init"
+if [ "$kind" = zsh ]; then ps_get() { printf '%s' "$PROMPT"; }; ps_set() { PROMPT=$1; }
+else ps_get() { printf '%s' "$PS1"; }; ps_set() { PS1=$1; }; fi
+ps_set 'own> '
+_proj_prompt_begin 'python|x|py|CONDA_PREFIX' 1
+micromamba activate "$prefix" || exit 1
+[ "$(ps_get)" = 'own> ' ] || { echo "inside proj: [$(ps_get)]" >&2; exit 2; }
+micromamba deactivate
+[ "$(ps_get)" = 'own> ' ] || { echo "after deactivate: [$(ps_get)]" >&2; exit 3; }
+_proj_prompt_end
+[ -z "${MAMBA_CHANGEPS1+set}" ] || exit 4
+micromamba activate "$prefix" || exit 5
+case $(ps_get) in "($prefix) own> ") ;; *) echo "outside proj: [$(ps_get)]" >&2; exit 6 ;; esac
+EOF
+  for mm_shell in bash zsh; do
+    mm_flags='--norc --noprofile'; [ "$mm_shell" = zsh ] && mm_flags='-f -i'
+    out=$($mm_shell $mm_flags "$tmp/mm-test.sh" "$root/shell/init.$mm_shell" "$mm_shell" \
+      "$tmp/mm-prefix" "$tmp/mm-root" 2>&1) || fail "$mm_shell: real micromamba and the prompt prefix switch: $out"
+  done
+fi
+pass "prompt tokens appear and disappear at the prompt, the manager prefix is off only inside proj, and the plain form works"
+
 # proj upgrade against a fake GitHub: file:// archives of this tree at other versions.
 upgrade_remote="$tmp/remote"
 make_remote() { # make_remote <ref> <version>

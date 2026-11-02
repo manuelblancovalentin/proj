@@ -149,6 +149,21 @@ activation.
   matches one, in both `proj.bash` and `_proj`, so `proj ac<Tab>` completes
   `activate`. An empty prefix lists everything. Keep both lists identical and
   covered by `tests/run`.
+- The prompt marker carries tokens (`docs/prompt-markers.md`): rows of
+  `name|emoji|plain|VARIABLE` from the `[prompt]` configuration (built in:
+  `python` 🐍 `CONDA_PREFIX`, `wolf` 🐺 `WOLF_ACTIVE_ENV`), passed to the adapter
+  at activation and evaluated at every prompt with shell builtins only. An emoji
+  is one code point of East Asian Wide width (validated; no variation selector
+  or joiner), and the ASCII form is used for a non-UTF-8 locale, `TERM=linux` or
+  `dumb`, `PROJ_PLAIN_PROMPT`, or `prompt.plain`. Only while proj itself draws
+  the marker (not with `PROJ_PROMPT=off`, nor a framework drawing the badge) and
+  the `python` token exists, activation sets `CONDA_CHANGEPS1=false` and
+  `MAMBA_CHANGEPS1=false` (micromamba ignores the first) and records the
+  person's values in plain variables, put back by `_proj_prompt_end` from every
+  path that ends or rolls back an activation. It exports `PROJ_PROMPT_TOKENS`
+  (the names; the contract for other tools) and the internal `PROJ_PROMPT_TABLE`.
+  Outside an environment proj touches nothing of the manager's or the prompt.
+  The emoji list in the doc is the one registry: add a row when adding a token.
 - Precedence is private, shared, then extra roots; a private environment
   shadows a shared one with the same name.
 - `proj share`/`proj unshare` move an environment between your private and the

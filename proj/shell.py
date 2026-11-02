@@ -26,6 +26,8 @@ def activation_code(config: Config, project: Project) -> str:
         "1" if config.run_startup_hooks else "0",
         manager_for(config, project) if project.python_environment else "",
         "1" if config.restore_login_modules else "0",
+        config.prompt.table(),
+        "1" if config.prompt.hide_manager_prefix else "0",
     )
     return "_proj_activate " + " ".join(_q(value) for value in values)
 

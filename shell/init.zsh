@@ -72,7 +72,7 @@ if (( $+functions[dots_register_tool] )); then
   unset _proj_info _proj_lmod _proj_mamba
 fi
 
-# Prompt segment: "[proj:<name>] " in front of PROMPT while an environment is
+# Prompt segment: "[proj:<name> <tokens>] " in front of PROMPT while an environment is
 # active, nothing otherwise. A framework that draws the badge itself (dots,
 # unless DOTS_PROMPT=never) is left to do so, and PROJ_PROMPT=off disables this.
 # PROJ_PROMPT_SEGMENT holds the segment in prompt-escape form for prompts that
@@ -81,12 +81,15 @@ typeset -g _proj_prompt_badge=''
 _proj_prompt_update() {
   emulate -L zsh
   [[ -o interactive ]] || return 0
-  local badge=''
+  local badge='' label
   if [[ -n ${PROJ_ACTIVE-} ]]; then
+    # The tokens are read from the environment now (see "Prompt tokens" in core.sh).
+    _proj_prompt_tokens
+    label=${PROJ_ACTIVE}${_proj_prompt_text:+ $_proj_prompt_text}
     if [[ -n ${NO_COLOR-} ]]; then
-      badge="[proj:${PROJ_ACTIVE}]"
+      badge="[proj:${label}]"
     else
-      badge="%F{134}[proj:%f%F{cyan}${PROJ_ACTIVE}%f%F{134}]%f"
+      badge="%F{134}[proj:%f%F{cyan}${label}%f%F{134}]%f"
     fi
   fi
   typeset -g PROJ_PROMPT_SEGMENT=$badge

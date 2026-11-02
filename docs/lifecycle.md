@@ -9,9 +9,13 @@
 5. Record the modules the login already has loaded (`PROJ_LOGIN_MODULES`; skipped
    when `behavior.restore_login_modules` is false; a plain variable, not
    exported, at most 4096 characters), then `module load project/<name>`.
-6. Activate the configured Python environment with its manager.
-7. Change to the project root when configured.
-8. Run startup hooks.
+6. Set up the prompt tokens (`_proj_prompt_begin`): export `PROJ_PROMPT_TOKENS`
+   and `PROJ_PROMPT_TABLE` and switch off the Python manager's own prompt prefix
+   (`CONDA_CHANGEPS1`, `MAMBA_CHANGEPS1`), remembering the person's values; see
+   `prompt-markers.md`.
+7. Activate the configured Python environment with its manager.
+8. Change to the project root when configured.
+9. Run startup hooks.
 
 Failure after mutation unloads the project module, restores the login's modules, deactivates the newly created
 Python environment level, removes the module path, restores the directory, and clears
@@ -30,7 +34,10 @@ provides the underlying exclusivity.
    remembering it).
 5. Remove the managed module path.
 6. Restore the previous directory.
-7. Clear adapter-owned state.
+7. Clear adapter-owned state, including the prompt tokens: the person's
+   `CONDA_CHANGEPS1` and `MAMBA_CHANGEPS1` come back and `PROJ_PROMPT_TOKENS` and
+   `PROJ_PROMPT_TABLE` are removed (after the Python environment was deactivated,
+   so the manager's prefix switch stays off until then).
 
 If state drift is detected, proj refuses to guess. Automatic force recovery is
 not part of the initial implementation.

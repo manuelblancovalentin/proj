@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .errors import ConfigError
 from .metadata import PYTHON_MANAGERS
+from .prompt import PromptSettings, settings as prompt_settings
 
 # The directory containing bin/, proj/, and shell/. Installers place the site
 # configuration beneath it, so no installation path is hardcoded.
@@ -26,6 +27,7 @@ CONFIG_KEYS = {
     "project_roots",
     "module_cache",
     "behavior",
+    "prompt",
 }
 
 BEHAVIOR_KEYS = {"change_directory", "run_startup_hooks", "restore_login_modules"}
@@ -51,6 +53,7 @@ class Config:
     run_startup_hooks: bool = True
     # Load back the modules a login had when an environment displaced them.
     restore_login_modules: bool = True
+    prompt: PromptSettings = PromptSettings()
 
     def is_library(self, name: str) -> bool:
         """True for a protected library: listed by name, or starting with a prefix."""
@@ -197,4 +200,5 @@ def load_config() -> Config:
         change_directory=bool(behavior.get("change_directory", True)),
         run_startup_hooks=bool(behavior.get("run_startup_hooks", True)),
         restore_login_modules=bool(behavior.get("restore_login_modules", True)),
+        prompt=prompt_settings(site.get("prompt"), user.get("prompt")),
     )

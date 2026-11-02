@@ -846,6 +846,11 @@ module_cache = "~/.cache/proj/modulefiles"
 change_directory = true              # cd to the project root on activation
 run_startup_hooks = true             # run startup hooks on activation
 restore_login_modules = true         # deactivate loads back login modules the environment displaced
+
+[prompt]
+show_tokens = true                   # emoji in the marker for a Python or wolf environment
+hide_manager_prefix = true           # no "(environment)" from the Python manager while proj is active
+plain = false                        # always the ASCII form of the tokens
 ```
 
 Unknown keys are rejected, so typos fail loudly. `proj doctor` shows the
@@ -863,11 +868,15 @@ effective site configuration, registries, and Python manager.
 | `PROJ_CACHE_HOME` | Cache directory (`~/.cache/proj`) |
 | `PROJ_PYTHON` | Interpreter that runs proj |
 | `PROJ_PROMPT` | `off` stops the adapters from adding the prompt segment |
+| `PROJ_PLAIN_PROMPT` | `1` writes the prompt tokens in ASCII (`py`, `wolf`) instead of emoji |
 | `PROJ_GLOBAL_BIN`, `PROJ_GLOBAL_MAN`, `PROJ_GLOBAL_TLDR` | Link targets of `proj install` |
 
 While an environment is active, proj sets `PROJ_ACTIVE`, `PROJ_ROOT`,
 `PROJ_METADATA`, `PROJ_MODULE`, and `PROJ_MAMBA_ENV` (the Python
-environment).
+environment). `PROJ_ACTIVE` is the one for other tools to read: it is non-empty
+exactly while an environment is active in this shell. When proj draws the prompt
+marker it also exports `PROJ_PROMPT_TOKENS`, the names of the tokens it shows
+(see [Prompt markers](docs/prompt-markers.md)).
 
 ## Project metadata reference
 
@@ -1048,6 +1057,28 @@ Whoever owns the prompt should draw it, so this is a default, not a takeover:
   maintained), and `NO_COLOR` makes the segment plain text.
 
 Any other prompt can read `$PROJ_ACTIVE` directly.
+
+The marker also carries a small emoji for each kind of environment that is on in
+this shell, read at every prompt, and the Python manager's own `(environment)`
+prefix is switched off while proj is active, since the snake says the same:
+
+```text
+[proj:maple 🐍 🐺] user@host:maple$
+```
+
+| Token | Shown while |
+|---|---|
+| 🐍 `python` | `CONDA_PREFIX` is set |
+| 🐺 `wolf` | `WOLF_ACTIVE_ENV` is set |
+
+Outside an environment nothing changes: proj never edits your conda settings or
+prompt when it is not active, and a prefix already in your prompt before
+`proj activate` stays. The ASCII form (`[proj:maple py wolf]`) is used when the
+locale is not UTF-8, `TERM` is `linux` or `dumb`, or `PROJ_PLAIN_PROMPT=1`. The
+`[prompt]` table of the configuration adds tokens (one row each), removes
+them, or switches the tokens (`show_tokens`) or the prefix change
+(`hide_manager_prefix`) off. The list of emoji taken, the variables other tools
+read, and the details are in [docs/prompt-markers.md](docs/prompt-markers.md).
 
 ### Customizing `proj info` for a site
 

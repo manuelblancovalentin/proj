@@ -40,8 +40,8 @@ case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
     ;;
 esac
 
-# Prompt segment: "[proj:<name>] " while an environment is active, nothing
-# otherwise. The hook only maintains PROJ_PROMPT_SEGMENT (no subprocess) and,
+# Prompt segment: "[proj:<name> <tokens>] " while an environment is active,
+# nothing otherwise (see "Prompt tokens" in core.sh). The hook only maintains PROJ_PROMPT_SEGMENT (no subprocess) and,
 # unless the prompt already mentions it, puts a reference to it in front of PS1.
 # A prompt that wants the segment elsewhere includes ${PROJ_PROMPT_SEGMENT}
 # itself; PROJ_PROMPT=off leaves PS1 alone. \001 and \002 are readline's
@@ -50,10 +50,16 @@ _proj_prompt_update() {
   local name=${PROJ_ACTIVE-}
   if [ -z "$name" ]; then
     PROJ_PROMPT_SEGMENT=
-  elif [ -n "${NO_COLOR-}" ]; then
-    PROJ_PROMPT_SEGMENT="[proj:$name]"
   else
-    PROJ_PROMPT_SEGMENT=$'\001\e[38;5;134m\002[proj:\001\e[36m\002'$name$'\001\e[38;5;134m\002]\001\e[0m\002'
+    # The tokens (a Python or wolf environment active in this shell, ...) are
+    # read from the environment now, so they follow what the person does here.
+    _proj_prompt_tokens
+    name=$name${_proj_prompt_text:+ $_proj_prompt_text}
+    if [ -n "${NO_COLOR-}" ]; then
+      PROJ_PROMPT_SEGMENT="[proj:$name]"
+    else
+      PROJ_PROMPT_SEGMENT=$'\001\e[38;5;134m\002[proj:\001\e[36m\002'$name$'\001\e[38;5;134m\002]\001\e[0m\002'
+    fi
   fi
   case ${PROJ_PROMPT-auto} in off|never|0) return 0 ;; esac
   case ${PS1-} in
