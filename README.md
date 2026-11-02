@@ -343,7 +343,14 @@ unless `--env` is given:
 proj config project.description="Atlas simulation"   # write
 proj config project.description                      # read
 proj config --env atlas python.environment            # another environment
+proj config --unset environment.ATLAS_MODE           # remove a key
 ```
+
+`--unset` removes any key `proj config` can set, with the same validation and
+rollback; it says so when the key is not set. `project.name` and `project.root`
+are required and stay (change the root with `proj config project.root PATH`).
+`environment_paths.<VARIABLE>` removes both of that variable's lists. For an
+active environment, reactivate to apply the change.
 
 Values use TOML syntax when needed (arrays, quoted strings); plain text is a
 string. Unknown keys are rejected, and a change that would make the document
@@ -489,8 +496,9 @@ proj status --json --checkout ~/atlas/repo    # a record of environment and comm
 
 - **Left panel**: the fixed facts about the environment (name, scope, owner,
   metadata file), then everything you can set: description, project root,
-  Python manager, Python environment, startup and shutdown hooks, and modules
-  for each category. Unset settings worth filling in are marked
+  Python manager, Python environment, environment variables (add, change or
+  remove `NAME=value` pairs), startup and shutdown hooks, and modules for each
+  category. Unset settings worth filling in are marked
   *recommended*. Click an entry or press Enter to open its dialog.
 - **Right panel**: `project.toml` exactly as it will be saved, with changed
   lines marked `❯` and a live validity check.
@@ -949,6 +957,7 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj status [--env NAME] [--json] [--checkout PATH]` | Show the active environment and any drift, including a Python environment older than its dependency file; `--json` prints a provenance record, `--checkout` adds a Git checkout's commit |
 | `proj info [--env NAME]` | Show one environment's settings; with none selected, an overview of environments and available modules |
 | `proj config [--env NAME] <key>[=<value>]` | Read or write metadata |
+| `proj config [--env NAME] --unset <key>` | Remove a key from the metadata |
 | `proj configmenu [--env NAME] [--setup]` | Edit an environment in an interactive menu |
 | `proj set-python-env [--env NAME] [--manager M] <environment>` | Link a Python environment |
 | `proj python-env list [--manager M]` | List Python environments |

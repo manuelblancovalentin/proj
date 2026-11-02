@@ -172,6 +172,21 @@ PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
   "$root/bin/proj" config --env atlas project.description | \
   grep -q '^Atlas development$' || fail "canonical environment selector"
 PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" config --env atlas environment.UNSET_ME=value >/dev/null ||
+  fail "config sets a variable to remove"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" config --env atlas --unset environment.UNSET_ME >/dev/null ||
+  fail "config --unset removes a variable"
+if PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" config --env atlas environment.UNSET_ME 2>/dev/null; then
+  fail "config --unset left the variable behind"
+fi
+if PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
+  "$root/bin/proj" config --env atlas --unset project.root 2>/dev/null; then
+  fail "config --unset removed the required root"
+fi
+pass "proj config --unset removes a key and keeps the required ones"
+PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \
   "$root/bin/proj" env show atlas | grep -q 'Gcc/14' &&
   fail "unexpected output normalization"
 PROJ_HOME="$managed_home" PROJ_CACHE_HOME="$tmp/managed-cache" \

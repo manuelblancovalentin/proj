@@ -219,13 +219,8 @@ def get_dotted(data: dict[str, Any], dotted: str) -> Any:
     return current
 
 
-def set_dotted(data: dict[str, Any], dotted: str, value: Any) -> None:
-    if dotted in {"project.name"}:
-        raise ProjError("project.name cannot be changed after creation")
-    components = dotted.split(".")
-    if len(components) < 2:
-        raise ProjError("configuration keys must include a section")
-    allowed = (
+def _supported_key(dotted: str, components: list[str]) -> bool:
+    return (
         dotted in EXACT_CONFIG_KEYS
         or (
             components[0] == "modules"
@@ -239,7 +234,15 @@ def set_dotted(data: dict[str, Any], dotted: str, value: Any) -> None:
             and components[2] in PATH_VARIABLE_FIELDS
         )
     )
-    if not allowed:
+
+
+def set_dotted(data: dict[str, Any], dotted: str, value: Any) -> None:
+    if dotted in {"project.name"}:
+        raise ProjError("project.name cannot be changed after creation")
+    components = dotted.split(".")
+    if len(components) < 2:
+        raise ProjError("configuration keys must include a section")
+    if not _supported_key(dotted, components):
         raise ProjError(f"unknown or unsupported configuration key {dotted!r}")
     current = data
     for component in components[:-1]:
@@ -248,6 +251,31 @@ def set_dotted(data: dict[str, Any], dotted: str, value: Any) -> None:
             raise ProjError(f"cannot set nested key beneath {component!r}")
         current = child
     current[components[-1]] = value
+
+
+def unset_dotted(data: dict[str, Any], dotted: str) -> None:
+    """Remove a key that `proj config` can set. `environment_paths.<VARIABLE>`
+    removes both its lists. The name and the root are required, so they stay."""
+    if dotted in {"project.name", "project.root"}:
+        raise ProjError(f"{dotted} is required and cannot be removed")
+    components = dotted.split(".")
+    if len(components) < 2:
+        raise ProjError("configuration keys must include a section")
+    whole_variable = components[0] == "environment_paths" and len(components) == 2
+    if not whole_variable and not _supported_key(dotted, components):
+        raise ProjError(f"unknown or unsupported configuration key {dotted!r}")
+    parents: list[dict[str, Any]] = [data]
+    for component in components[:-1]:
+        child = parents[-1].get(component)
+        if not isinstance(child, dict):
+            raise ProjError(f"configuration key {dotted!r} is not set")
+        parents.append(child)
+    if components[-1] not in parents[-1]:
+        raise ProjError(f"configuration key {dotted!r} is not set")
+    del parents[-1][components[-1]]
+    # A variable left with neither list would render as an empty table header.
+    if components[0] == "environment_paths" and len(components) == 3 and not parents[-1]:
+        del parents[-2][components[1]]
 
 
 def parse_value(raw: str) -> Any:

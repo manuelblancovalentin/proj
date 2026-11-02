@@ -94,7 +94,7 @@ _proj_complete() {
         (( COMP_CWORD >= 3 )) && candidates=$'--root\n--from\n--python\n--shared\n--group\n--group-writable\n--private\n--use'
         ;;
       config)
-        candidates=$'--env\nproject.description\nproject.root\nproject.shell'
+        candidates=$'--env\n--unset\nproject.description\nproject.root\nproject.shell'
         candidates+=$'\npython.manager\npython.environment\npython.spec\npaths.prepend'
         candidates+=$'\nhooks.startup\nhooks.shutdown'
         ;;

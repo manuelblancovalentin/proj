@@ -86,6 +86,10 @@
 
 `proj config {{project.description}}`
 
+- Remove a configuration key (for example an environment variable):
+
+`proj config --unset environment.{{VARIABLE}}`
+
 - List and link an existing Python environment (micromamba, conda, or mamba):
 
 `proj python-env list`

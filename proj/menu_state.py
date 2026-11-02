@@ -14,7 +14,13 @@ from .config import Config
 from .editor import load_document, render_document, update_document
 from .errors import ProjError
 from .lmod import catalog
-from .metadata import MODULE_CATEGORIES, PYTHON_MANAGERS, Project, load_project
+from .metadata import (
+    ENVIRONMENT_NAME_RE,
+    MODULE_CATEGORIES,
+    PYTHON_MANAGERS,
+    Project,
+    load_project,
+)
 
 HOOK_PHASES = ("startup", "shutdown")
 
@@ -78,6 +84,9 @@ class MenuState:
     def hooks(self, phase: str) -> list[list[str]]:
         return [list(argv) for argv in self.data.get("hooks", {}).get(phase, [])]
 
+    def variables(self) -> dict[str, str]:
+        return dict(self.data.get("environment", {}))
+
     def modules(self, category: str) -> list[str]:
         return list(self.data.get("modules", {}).get(category, []))
 
@@ -120,6 +129,26 @@ class MenuState:
             section[phase] = [list(argv) for argv in hooks]
         else:
             section.pop(phase, None)
+
+    def set_variables(self, variables: dict[str, str]) -> None:
+        for name in variables:
+            self.check_variable_name(name)
+        section = self._section("environment")
+        if variables:
+            section.clear()
+            section.update(variables)
+        else:
+            self.data.pop("environment", None)
+
+    def check_variable_name(self, name: str) -> None:
+        if not ENVIRONMENT_NAME_RE.fullmatch(name):
+            raise ProjError(
+                f"{name!r} is not a variable name (letters, digits and _, not starting with a digit)"
+            )
+        if name.startswith("PROJ_"):
+            raise ProjError("PROJ_* variables belong to proj")
+        if name in self.data.get("environment_paths", {}):
+            raise ProjError(f"{name} is a path list in [environment_paths]; remove it there first")
 
     def set_modules(self, category: str, modules: list[str]) -> None:
         if category not in MODULE_CATEGORIES:
@@ -208,3 +237,14 @@ def parse_hook(text: str) -> list[str]:
     if not argv:
         raise ProjError("a hook needs a command")
     return argv
+
+
+def parse_variable(text: str) -> tuple[str, str]:
+    """`NAME=value` as typed in the variables dialog. The value is taken as
+    written (`${project.root}` is expanded by proj when the environment is
+    activated; nothing is run)."""
+    name, separator, value = text.strip().partition("=")
+    name = name.strip()
+    if not separator or not name:
+        raise ProjError("type NAME=value, for example ATLAS_MODE=development")
+    return name, value

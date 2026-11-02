@@ -19,8 +19,9 @@ except ImportError:  # pragma: no cover - depends on the interpreter
 
 from proj.config import load_config
 from proj.discovery import resolve
+from proj.errors import ProjError
 from proj.lmod import ModuleEntry
-from proj.editor import create_document, load_document
+from proj.editor import create_document, load_document, write_document
 
 if textual:
     from proj.menu import ENTRIES, ConfigMenu, LeaveDialog, ModulesDialog, TextDialog
@@ -230,6 +231,67 @@ class ConfigMenuTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(self.state.hooks("startup"), [["./check", "--fast"], ["./second"]])
             self.assertIsNone(self.state.validate())
+
+    async def test_variables_dialog_adds_replaces_edits_and_removes(self):
+        data = load_document(self.metadata)
+        data["environment"] = {"VIRTUAL_ENV": "${project.root}/.venv", "ATLAS_MODE": "dev"}
+        write_document(self.metadata, data)
+        self.state.data = load_document(self.metadata)
+        async with self.app.run_test(size=(120, 40)) as pilot:
+            await self.open_entry(pilot, "variables")
+            listing = self.app.screen.query_one("#variables")
+            self.assertEqual(listing.option_count, 2)
+            await pilot.press(*"ATLAS_DATA=${project.root}/data", "enter")
+            await pilot.press(*"ATLAS_MODE=prod", "enter")
+            await pilot.pause()
+            self.assertEqual(listing.option_count, 3)
+            # Remove VIRTUAL_ENV: highlight it, then Remove selected.
+            listing.highlighted = 2
+            await pilot.click("#remove")
+            await pilot.pause()
+            self.assertEqual(listing.option_count, 2)
+            # Edit selected puts NAME=value back in the field.
+            listing.highlighted = 1
+            await pilot.click("#edit")
+            await pilot.pause()
+            self.assertEqual(self.app.screen.query_one("#assignment").value, "ATLAS_MODE=prod")
+            await pilot.click("#apply")
+            await pilot.pause()
+        self.assertEqual(
+            self.state.variables(),
+            {"ATLAS_DATA": "${project.root}/data", "ATLAS_MODE": "prod"},
+        )
+        self.assertIsNone(self.state.validate())
+        self.assertIn("ATLAS_DATA, ATLAS_MODE", str(self.app.summary("variables")))
+
+    async def test_variables_dialog_refuses_bad_names_and_escape_discards(self):
+        async with self.app.run_test(size=(120, 40)) as pilot:
+            await self.open_entry(pilot, "variables")
+            for text in ("PROJ_ACTIVE=x", "1BAD=x", "no-equals"):
+                await pilot.press(*text, "enter")
+                await pilot.pause()
+                self.assertEqual(self.app.screen.query_one("#variables").option_count, 0, text)
+                self.app.screen.query_one("#assignment").value = ""
+            await pilot.press(*"KEEP=1", "enter")
+            await pilot.press("escape")
+            await pilot.pause()
+        self.assertEqual(self.state.variables(), {})
+        self.assertFalse(self.state.dirty)
+
+    async def test_removing_the_last_variable_drops_the_table(self):
+        data = load_document(self.metadata)
+        data["environment"] = {"ONLY": "1"}
+        write_document(self.metadata, data)
+        self.state.data = load_document(self.metadata)
+        self.state.set_variables({})
+        self.assertNotIn("environment", self.state.data)
+        self.assertIn('# PROJECT_MODE = "development"', self.state.preview())
+        self.assertIsNone(self.state.validate())
+
+    def test_a_path_list_variable_cannot_also_be_a_plain_one(self):
+        self.state.data["environment_paths"] = {"PYTHONPATH": {"prepend": ["/x"]}}
+        with self.assertRaises(ProjError):
+            self.state.check_variable_name("PYTHONPATH")
 
 
 @unittest.skipUnless(textual, "Textual is not installed for this interpreter")

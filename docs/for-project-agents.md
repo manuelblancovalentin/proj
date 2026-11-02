@@ -81,4 +81,5 @@ executable on `PATH`.
 * Metadata lives outside the project folder (`proj env show orbit` prints the path);
   the project folder needs no proj file and should not get one.
 * Never edit `project.toml` by hand if `proj config` can do it: it validates and
-  restores the previous document on error.
+  restores the previous document on error. Remove a key with
+  `proj config --env NAME --unset KEY`.

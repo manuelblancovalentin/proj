@@ -41,13 +41,14 @@ from textual.widgets.selection_list import Selection
 from .config import load_config
 from .discovery import resolve
 from .errors import ProjError
-from .menu_state import MenuState, format_hook, parse_hook
+from .menu_state import MenuState, format_hook, parse_hook, parse_variable
 
 ENTRIES = (
     ("description", "Description"),
     ("root", "Project root"),
     ("manager", "Python manager"),
     ("python", "Python environment"),
+    ("variables", "Environment variables"),
     ("hooks:startup", "Startup hooks"),
     ("hooks:shutdown", "Shutdown hooks"),
     ("modules:compiler", "Compiler modules"),
@@ -311,6 +312,102 @@ class HooksDialog(Dialog):
     @on(Button.Pressed, "#apply")
     def apply(self) -> None:
         self.dismiss(self.hooks)
+
+    @on(Button.Pressed, "#cancel")
+    def cancel_pressed(self) -> None:
+        self.dismiss(None)
+
+
+class VariablesDialog(Dialog):
+    """The `[environment]` variables: set with Lmod's pushenv, so leaving the
+    environment gives the person's own value back."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Back", priority=True),
+        Binding("delete", "remove", "Remove"),
+    ]
+
+    def __init__(self, variables: dict[str, str], check: Callable[[str], None]):
+        super().__init__()
+        self.variables = dict(variables)
+        self.check = check
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Label(Text("Environment variables", style="bold"), classes="dialog-title")
+            yield Label(
+                Text(
+                    "Set while the environment is active and restored afterwards. "
+                    "${project.root} and ${user.home} are expanded.",
+                    style="dim",
+                )
+            )
+            yield OptionList(id="variables")
+            yield Input(placeholder="NAME=value, then Enter (an existing name is replaced)", id="assignment")
+            yield Label("", id="status")
+            with Horizontal(classes="buttons"):
+                yield Button("Edit selected", id="edit")
+                yield Button("Remove selected", id="remove")
+                yield Button("Apply", variant="primary", id="apply")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.refresh_variables()
+        self.query_one("#assignment", Input).focus()
+
+    def refresh_variables(self, highlight: str | None = None) -> None:
+        listing = self.query_one("#variables", OptionList)
+        listing.clear_options()
+        for name in sorted(self.variables):
+            listing.add_option(Option(f"{name}={self.variables[name]}"))
+        if not self.variables:
+            self.status("No variables yet. Type NAME=value below and press Enter.")
+        elif highlight in self.variables:
+            listing.highlighted = sorted(self.variables).index(highlight)
+
+    def selected_name(self) -> str | None:
+        index = self.query_one("#variables", OptionList).highlighted
+        names = sorted(self.variables)
+        if index is None or index >= len(names):
+            self.status("Highlight a variable first.", error=True)
+            return None
+        return names[index]
+
+    @on(Input.Submitted, "#assignment")
+    def add(self, event: Input.Submitted) -> None:
+        try:
+            name, value = parse_variable(event.value)
+            self.check(name)
+        except ProjError as exc:
+            self.status(str(exc), error=True)
+            return
+        replaced = name in self.variables
+        self.variables[name] = value
+        event.input.value = ""
+        self.refresh_variables(name)
+        self.status(f"{'Replaced' if replaced else 'Added'}: {name}")
+
+    @on(Button.Pressed, "#edit")
+    def edit_selected(self) -> None:
+        name = self.selected_name()
+        if name is not None:
+            field = self.query_one("#assignment", Input)
+            field.value = f"{name}={self.variables[name]}"
+            field.focus()
+            field.cursor_position = len(field.value)
+
+    @on(Button.Pressed, "#remove")
+    def action_remove(self) -> None:
+        name = self.selected_name()
+        if name is None:
+            return
+        del self.variables[name]
+        self.refresh_variables()
+        self.status(f"Removed: {name}")
+
+    @on(Button.Pressed, "#apply")
+    def apply(self) -> None:
+        self.dismiss(self.variables)
 
     @on(Button.Pressed, "#cancel")
     def cancel_pressed(self) -> None:
@@ -610,6 +707,8 @@ class ConfigMenu(App):
             value = state.manager
         elif key == "python":
             value = state.python_environment
+        elif key == "variables":
+            value = ", ".join(sorted(state.variables()))
         elif key.startswith("hooks:"):
             hooks = state.hooks(key.split(":", 1)[1])
             value = "; ".join(format_hook(argv) for argv in hooks)
@@ -687,6 +786,12 @@ class ConfigMenu(App):
                     state.set_python_environment(*choice)
                     self.refresh_view()
             self.push_screen(PythonDialog(state.manager, state.python_environment), set_python)
+        elif key == "variables":
+            def set_variables(variables) -> None:
+                if variables is not None:
+                    state.set_variables(variables)
+                    self.refresh_view()
+            self.push_screen(VariablesDialog(state.variables(), state.check_variable_name), set_variables)
         elif key.startswith("hooks:"):
             phase = key.split(":", 1)[1]
             def set_hooks(hooks) -> None:

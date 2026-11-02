@@ -26,6 +26,7 @@ from .editor import (
     load_document,
     parse_value,
     set_dotted,
+    unset_dotted,
     update_document,
     write_document,
 )
@@ -540,6 +541,14 @@ def cmd_config(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
     assignment = args.assignment
     raw_value = args.value
+    if args.unset:
+        if raw_value is not None or "=" in assignment:
+            raise ProjError("--unset takes a key only, without a value")
+        update_document(project, lambda data: unset_dotted(data, assignment))
+        print(f"Removed {assignment} from {project.metadata_path}")
+        if os.environ.get("PROJ_ACTIVE") == project.name:
+            print("Reactivate the project to apply environment changes.")
+        return 0
     if "=" in assignment:
         if raw_value is not None:
             raise ProjError("use either key=value or key value, not both")
@@ -1355,6 +1364,9 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser = sub.add_parser("config", help="read or write project metadata")
     config_parser.add_argument(
         "--env", "--project", dest="project", metavar="NAME"
+    )
+    config_parser.add_argument(
+        "--unset", action="store_true", help="remove the key instead of reading or writing it"
     )
     config_parser.add_argument("assignment")
     config_parser.add_argument("value", nargs="?")

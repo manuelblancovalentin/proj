@@ -198,7 +198,7 @@ case $words[2] in
   config)
     if (( CURRENT == 3 )); then
       _values 'configuration key' \
-        project.description project.root project.shell \
+        --env --unset project.description project.root project.shell \
         python.manager python.environment python.spec paths.prepend \
         hooks.startup hooks.shutdown
     fi

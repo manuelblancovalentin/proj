@@ -227,6 +227,14 @@ the active project is selected. Values use TOML syntax; unquoted text is
 treated as a string. Environment-affecting changes take effect after
 reactivation.
 .TP
+.BR "proj config " "[--env " name "] --unset " key
+Remove a key that
+.B proj config
+can set, with the same validation and rollback. A key that is not set is an
+error. The project name and root are required and stay;
+.I environment_paths.VARIABLE
+removes both lists of that variable.
+.TP
 .BR "proj set-python-env " "[--env " name "] [--manager " manager "] " environment
 Validate and link an existing environment of
 .BR micromamba ,
@@ -242,7 +250,8 @@ does not create the Python environment.
 .TP
 .BR "proj configmenu " "[--env " name "] [--setup]"
 Edit an environment in a full-screen menu: fixed facts and editable settings
-on the left, the resulting
+on the left (including the environment variables, which can be added, changed and
+removed there), the resulting
 .I project.toml
 with unsaved lines marked on the right. Dialogs list live choices (Python
 managers, environments, Lmod modules) with a Rescan button. Ctrl+S saves;

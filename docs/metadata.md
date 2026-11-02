@@ -106,6 +106,10 @@ proj config paths.prepend='["${project.root}/bin"]'
 proj config hooks.startup='[["./scripts/check-config"]]'
 ```
 
+Remove a key with `--unset` (`proj config --unset environment.EXAMPLE_MODE`).
+The name and the root are required and cannot be removed; a key that is not set
+is an error.
+
 Values use TOML syntax when needed. Plain unquoted text is treated as a string.
 Supported generic keys are `project.description`, `project.root`,
 `project.shell`, `python.manager`, `python.environment`, `python.spec`,
