@@ -54,9 +54,13 @@ from .modulefile import materialize, render
 from .render import Output
 from .shell import (
     activation_code,
+    changed_python,
     deactivation_code,
+    environment_label,
     orphan_deactivation_code,
     reapply_code,
+    recorded_python,
+    reload_code,
 )
 
 
@@ -766,7 +770,10 @@ def cmd_status(config: Config, args: argparse.Namespace) -> int:
             project.module_name in loaded
             or os.environ.get("PROJ_MODULE") == project.module_name
         )
-        python_env = project.python_environment or ""
+        # What this shell activated is what it should still have, even when the
+        # project's record has changed since (that is not a hand edit).
+        recorded = recorded_python(project)
+        python_env = project.python_environment or "" if recorded is None else recorded[0]
         if os.path.isabs(python_env):
             current_env = os.environ.get("CONDA_PREFIX", "")
         else:
@@ -776,10 +783,17 @@ def cmd_status(config: Config, args: argparse.Namespace) -> int:
         missing = expected - loaded
         if missing:
             drift.append("missing modules: " + ", ".join(sorted(missing)))
-        if project.python_environment and current_env != project.python_environment:
+        changed = changed_python(config, project)
+        if changed is not None:
+            drift.append(
+                "this shell uses the previous Python environment "
+                f"({environment_label(changed[0], changed[1])}; the project now has "
+                f"{environment_label(changed[1], changed[0])}): run `proj reload`"
+            )
+        if python_env and current_env != python_env:
             drift.append(
                 f"Python environment is {current_env or 'inactive'}, "
-                f"expected {project.python_environment}"
+                f"expected {python_env}"
             )
     else:
         loaded = set()
@@ -856,7 +870,7 @@ def _python_label(config: Config, project: Project) -> str:
 def _module_state(config: Config, project: Project) -> str:
     output = config.module_cache / "project" / f"{project.name}.lua"
     digest_file = output.with_suffix(".sha256")
-    expected = hashlib.sha256(render(project).encode()).hexdigest()
+    expected = hashlib.sha256(render(project, python_envs.manager_for(config, project)).encode()).hexdigest()
     if not output.is_file() or not digest_file.is_file():
         return "missing"
     return "current" if digest_file.read_text().strip() == expected else "stale"
@@ -1276,13 +1290,27 @@ def cmd_init(_config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _changed_note(project, changed: tuple[str, str], action: str) -> str:
+    old, new = changed
+    return (
+        f"the Python environment of {project.name!r} was changed after this shell "
+        f"activated it (it was {environment_label(old, new)}, "
+        f"it is now {environment_label(new, old)}); {action}"
+    )
+
+
 def cmd_shell(config: Config, args: argparse.Namespace) -> int:
+    active = os.environ.get("PROJ_ACTIVE")
     if args.action == "activate":
-        if os.environ.get("PROJ_ACTIVE"):
-            raise ProjError(
-                f"project {os.environ['PROJ_ACTIVE']!r} is already active; deactivate it first"
-            )
         project = resolve(config, args.project)
+        if active:
+            changed = changed_python(config, project) if active == project.name else None
+            if changed is None:
+                raise ProjError(f"project {active!r} is already active; deactivate it first")
+            # This shell holds an older record of the same project: switch to the new one.
+            print(f"proj: {_changed_note(project, changed, 'switching to the new one')}", file=sys.stderr)
+            print(reload_code(project.name))
+            return 0
         owner = access.project_owner(project)
         if owner != access.current_user():
             print(
@@ -1292,10 +1320,19 @@ def cmd_shell(config: Config, args: argparse.Namespace) -> int:
             )
         print(activation_code(config, project))
         return 0
-    active = os.environ.get("PROJ_ACTIVE")
+    if args.action == "reload":
+        if not active:
+            raise ProjError("no project is active; run `proj activate NAME`")
+        if args.project and args.project != active:
+            raise ProjError(f"project {args.project!r} is not the active one ({active!r})")
+        resolve(config, active)
+        print(reload_code(active))
+        return 0
     if not active:
         print("_proj_no_active")
         return 0
+    quiet = bool(getattr(args, "quiet", False))
+    force = bool(getattr(args, "force", False))
     try:
         project = resolve(config, active)
     except ProjError:
@@ -1305,7 +1342,14 @@ def cmd_shell(config: Config, args: argparse.Namespace) -> int:
         )
         print(orphan_deactivation_code(config, active))
         return 0
-    print(deactivation_code(config, project))
+    changed = changed_python(config, project)
+    if changed is not None and not quiet:
+        print(
+            f"proj: {_changed_note(project, changed, 'deactivating what this shell recorded')}; "
+            f"run `proj activate {project.name}` to use the new one",
+            file=sys.stderr,
+        )
+    print(deactivation_code(config, project, quiet=quiet, force=force))
     return 0
 
 
@@ -1480,7 +1524,16 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("project")
     activate = sub.add_parser("activate", help="activate a project")
     activate.add_argument("project")
-    sub.add_parser("deactivate", help="deactivate the current project")
+    deactivate = sub.add_parser("deactivate", help="deactivate the current project")
+    deactivate.add_argument(
+        "--force",
+        action="store_true",
+        help="leave even if the Python environment is not the one this shell activated",
+    )
+    reload_parser = sub.add_parser(
+        "reload", help="deactivate and activate the current project again (picks up a changed record)"
+    )
+    reload_parser.add_argument("project", nargs="?")
     configmenu = sub.add_parser(
         "configmenu", help="edit an environment in an interactive menu"
     )
@@ -1532,8 +1585,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     remove.set_defaults(delete_files=None)
     shell = sub.add_parser("_shell", help=argparse.SUPPRESS)
-    shell.add_argument("action", choices=("activate", "deactivate"))
+    shell.add_argument("action", choices=("activate", "deactivate", "reload"))
     shell.add_argument("project", nargs="?")
+    shell.add_argument("--quiet", action="store_true")
+    shell.add_argument("--force", action="store_true")
     hook = sub.add_parser("_hook", help=argparse.SUPPRESS)
     hook.add_argument("phase", choices=("startup", "shutdown"))
     hook.add_argument("project")
@@ -1621,7 +1676,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.action == "activate" and not args.project:
                 raise ProjError("activate requires a project")
             return cmd_shell(config, args)
-        if args.command in {"activate", "deactivate"}:
+        if args.command in {"activate", "deactivate", "reload"}:
             raise ProjError(
                 f"{args.command} must run through the shell integration; "
                 f"run `proj init` or source {TOOL_ROOT}/shell/init.<zsh|bash>"

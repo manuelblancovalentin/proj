@@ -26,7 +26,9 @@ provides the underlying exclusivity.
 
 ## Deactivation
 
-1. Verify Lmod and Python environment state have not drifted.
+1. Verify Python environment state has not drifted from what *this shell*
+   activated (the module's own `PROJ_MAMBA_ENV` and `PROJ_PYTHON_MANAGER`, not
+   the project's current record).
 2. Run shutdown hooks.
 3. Deactivate exactly the Python environment level created by proj.
 4. Unload the project module, then load back any login module the environment
@@ -39,8 +41,17 @@ provides the underlying exclusivity.
    `PROJ_PROMPT_TABLE` are removed (after the Python environment was deactivated,
    so the manager's prefix switch stays off until then).
 
-If state drift is detected, proj refuses to guess. Automatic force recovery is
-not part of the initial implementation.
+A change of the project's Python record after activation is not drift: the
+shell is left with what it recorded and told what changed (`proj reload` or
+`proj activate` in that shell switches to the new one; `proj status` says "uses
+the previous Python environment"). If the Python environment was changed by
+hand, proj refuses to guess and names what differs; `proj deactivate --force`
+leaves anyway (a failing shutdown hook or Python deactivation only warns) and
+never touches a Python environment other than the recorded one.
+
+`proj reload` is deactivation with the prompt-level messages off, followed by
+activation, in the current directory; the shell remembers the directory from
+before the first activation.
 
 ## Reversibility
 

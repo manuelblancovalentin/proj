@@ -357,6 +357,96 @@ PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" \
   ' bash "$root" "$project_root" || fail "transactional Bash lifecycle"
 pass "activation and deactivation mutate and restore the parent Bash"
 
+# A project whose Python record changes while a shell has it active: that shell
+# can leave, reload, and say so; a hand edit is still refused, with a way out.
+swap_root="$tmp/projects/swap"
+mkdir -p "$swap_root"
+write_swap() {
+  cat > "$swap_root/project.toml" <<EOF
+schema = 1
+
+[project]
+name = "swap"
+root = "$swap_root"
+
+[python]
+manager = "micromamba"
+environment = "$1"
+EOF
+}
+for swap_shell in bash zsh; do
+  write_swap swap-a
+  PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" PROJ_HOME="$tmp/swap-home" \
+    SWAP_DOC="$swap_root/project.toml" SWAP_ROOT="$swap_root" SWAP_OUT="$tmp/swap-out" \
+    "$swap_shell" -f -c '
+      [ -n "${BASH_VERSION-}" ] && set +o posix
+      check() { [ "$2" = "$3" ] || { printf "step %s: got [%s] want [%s]\n" "$1" "$2" "$3" >&2; exit 1; }; }
+      env_of_document() { sed -n "s/^environment = \"\(.*\)\"/\1/p" "$SWAP_DOC"; }
+      module() {
+        case $1 in
+          use|unuse) return 0 ;;
+          load)
+            export PROJ_ACTIVE=swap PROJ_ROOT=$SWAP_ROOT PROJ_MODULE=$2 LOADEDMODULES=$2
+            export PROJ_MAMBA_ENV=$(env_of_document) PROJ_PYTHON_MANAGER=micromamba ;;
+          unload) unset PROJ_ACTIVE PROJ_ROOT PROJ_MODULE PROJ_MAMBA_ENV PROJ_PYTHON_MANAGER LOADEDMODULES ;;
+        esac
+      }
+      micromamba() {
+        case $1 in
+          activate) export CONDA_DEFAULT_ENV=$2 CONDA_SHLVL=$(( ${CONDA_SHLVL:-0} + 1 )) ;;
+          deactivate) unset CONDA_DEFAULT_ENV; export CONDA_SHLVL=$(( ${CONDA_SHLVL:-1} - 1 )) ;;
+        esac
+      }
+      if [ -n "${BASH_VERSION-}" ]; then . "$1/shell/init.bash"; else source "$1/shell/init.zsh"; fi
+      swap() { sed -i "s/^environment = .*/environment = \"$1\"/" "$SWAP_DOC"; }
+      start=$PWD
+
+      # 1. changed under the shell: status says so, deactivate works and says why
+      proj activate swap >/dev/null 2>&1 || exit 11
+      check 1 "$CONDA_DEFAULT_ENV" swap-a
+      swap swap-b
+      status_out=$(proj status 2>&1); code=$?
+      check 2 "$code" 2
+      case $status_out in *"uses the previous Python environment (swap-a; the project now has swap-b)"*) ;; *) echo "status: $status_out" >&2; exit 1 ;; esac
+      case $status_out in *"Python environment is"*) echo "status called it a hand edit: $status_out" >&2; exit 1 ;; esac
+      proj deactivate >"$SWAP_OUT" 2>&1; code=$?
+      out=$(cat "$SWAP_OUT")
+      check 4 "$code/${PROJ_ACTIVE-unset}/${CONDA_SHLVL:-0}/${CONDA_DEFAULT_ENV-unset}/$PWD" "0/unset/0/unset/$start"
+      case $out in *"was changed after this shell activated it (it was swap-a, it is now swap-b)"*"proj activate swap"*) ;; *) echo "deactivate: $out" >&2; exit 1 ;; esac
+
+      # 2. activate again in a shell with the old record: it switches
+      swap swap-a; proj activate swap >/dev/null 2>&1 || exit 12
+      swap swap-b
+      proj activate swap >"$SWAP_OUT" 2>&1 || { cat "$SWAP_OUT" >&2; exit 13; }
+      check 5 "$CONDA_DEFAULT_ENV/${CONDA_SHLVL:-0}/${PROJ_MAMBA_ENV-}" "swap-b/1/swap-b"
+      case $(cat "$SWAP_OUT") in *"switching to the new one"*) ;; *) cat "$SWAP_OUT" >&2; exit 1 ;; esac
+      check 6 "$PWD" "$SWAP_ROOT"
+      proj deactivate >/dev/null 2>&1
+      check 7 "${PROJ_ACTIVE-unset}/$PWD" "unset/$start"
+
+      # 3. an unchanged project is still "already active", and reload is explicit
+      proj activate swap >/dev/null 2>&1
+      proj activate swap >/dev/null 2>&1 && exit 14
+      swap swap-c
+      proj reload >/dev/null 2>&1 || exit 15
+      check 8 "$CONDA_DEFAULT_ENV/${CONDA_SHLVL:-0}/$PWD" "swap-c/1/$SWAP_ROOT"
+      proj deactivate >/dev/null 2>&1
+      check 9 "${PROJ_ACTIVE-unset}/$PWD" "unset/$start"
+      proj reload >/dev/null 2>&1 && exit 16
+
+      # 4. a hand edit is refused with the difference and the way out; --force leaves
+      proj activate swap >/dev/null 2>&1
+      micromamba deactivate; micromamba activate other
+      proj deactivate >"$SWAP_OUT" 2>&1; code=$?
+      check 10 "$code/${PROJ_ACTIVE-unset}" "2/swap"
+      case $(cat "$SWAP_OUT") in *"this shell has other active, expected swap-c"*"proj deactivate --force"*) ;; *) cat "$SWAP_OUT" >&2; exit 1 ;; esac
+      proj deactivate --force >/dev/null 2>&1 || exit 17
+      check 11 "${PROJ_ACTIVE-unset}/${CONDA_DEFAULT_ENV-unset}/$PWD" "unset/other/$start"
+    ' "$swap_shell" "$root" || fail "$swap_shell project changed under an active shell"
+done
+rm -rf "$swap_root"
+pass "a shell can leave, reload and report a project whose Python record changed; a hand edit is refused"
+
 forge_root="$tmp/projects/forge"
 mkdir -p "$forge_root"
 cat > "$forge_root/project.toml" <<EOF

@@ -54,9 +54,16 @@ shows the default manager; `proj info` shows the one a project uses.
 ## State drift
 
 `proj status` reports manual changes to loaded modules or Python environment
-state.
-Restore the expected state before deactivation. The initial release does not
-guess or force cleanup.
+state. Restore the expected state before deactivation, or run
+`proj deactivate --force` to leave anyway (the Python environment that is
+active is left as it is).
+
+"this shell uses the previous Python environment" is not a hand edit: the
+project's Python environment was changed after this shell activated it. Run
+`proj reload` to use the new one, or `proj deactivate` to leave. Both work from
+a shell that was already open, as long as the installed proj is new; a shell
+that sourced the adapter before an upgrade has the old `proj reload`-less
+adapter, and is told to deactivate and activate by hand.
 
 ## A public command link conflicts
 

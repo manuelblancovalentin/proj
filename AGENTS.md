@@ -190,6 +190,17 @@ activation.
 - `project.root` is shown and used for `cd`, `PROJ_ROOT` and `${project.root}`
   as written when it is a plain absolute path (it may be a link, `Project.visible_root`);
   checks and `list --json` use the resolved folder (`Project.root`).
+- A shell leaves an environment with what it recorded at activation, never with
+  the project's current record: the generated module exports
+  `PROJ_MAMBA_ENV` and `PROJ_PYTHON_MANAGER`, and `proj deactivate` (the CLI's
+  `_shell deactivate`) passes those to `_proj_deactivate` when `PROJ_MODULE` is
+  set. A record changed since is not drift: the CLI says what changed
+  (to stderr, so an older adapter says it too), `proj status` reports "this
+  shell uses the previous Python environment", and `proj reload`/`proj activate`
+  switch (`_proj_reload`; an adapter without it is told to do it by hand). Only
+  a Python environment that is not the recorded one is refused, naming what
+  differs; `--force` leaves anyway and never touches any other Python
+  environment. Nothing here edits a document.
 - `--env` is the canonical explicit environment selector. Keep `--project` as
   a compatibility alias unless a deliberate breaking migration removes it.
 - Shell initialization must never activate an environment. Only an explicit

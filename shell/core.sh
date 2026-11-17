@@ -349,35 +349,72 @@ _proj_activate() {
   _proj_log_ok "Project '$project_name' activated 🚀"
 }
 
+# The environment is left with what this shell recorded at activation (the CLI
+# passes the module's own PROJ_MAMBA_ENV), so a project whose Python record was
+# changed since is still left cleanly. Only a Python environment that is not the
+# recorded one (changed by hand) is refused, naming what differs; --force
+# leaves anyway and keeps hands off whatever Python environment is active.
 _proj_deactivate() {
   [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
   local project_name=$1 module_name=$2 module_path=$3
   local mamba_env=$4 metadata=$5 change_directory=$6
-  local python_manager=${7:-micromamba}
+  local python_manager=${7:-micromamba} quiet=${8:-0} force=${9:-0}
   local previous_pwd=${PROJ_PREVIOUS_PWD-}
   local expected_shlvl=${PROJ_MAMBA_SHLVL_BEFORE:-0}
+  local python_problem= leave_python=0 current_env
 
   if [ "${PROJ_ACTIVE-}" != "$project_name" ]; then
     _proj_log_error 'Active project state has drifted; run `proj status`'
     return 2
   fi
-  if [ -n "$mamba_env" ] &&
-     { ! _proj_mamba_active "$mamba_env" ||
-       [ "${CONDA_SHLVL:-0}" -ne $(( expected_shlvl + 1 )) ]; }; then
-    _proj_log_error \
-      'Python environment state has drifted; refusing unsafe deactivation'
-    return 2
-  fi
-  if [ -n "$mamba_env" ] && ! _proj_select_python_command "$python_manager"; then
-    _proj_log_error "$python_manager shell integration is unavailable"
-    return 2
+  if [ -n "$mamba_env" ]; then
+    leave_python=1
+    if ! _proj_mamba_active "$mamba_env"; then
+      case $mamba_env in
+        /*) current_env=${CONDA_PREFIX-} ;;
+        *) current_env=${CONDA_DEFAULT_ENV-} ;;
+      esac
+      python_problem="this shell has ${current_env:-no Python environment} active, expected $mamba_env"
+      leave_python=0
+    elif [ "${CONDA_SHLVL:-0}" -ne $(( expected_shlvl + 1 )) ]; then
+      python_problem="the Python environment level is ${CONDA_SHLVL:-0}, expected $(( expected_shlvl + 1 ))"
+      # Still the recorded environment: with --force one level is left.
+    fi
+    if [ -n "$python_problem" ] && [ "$force" != 1 ]; then
+      _proj_log_error \
+        "Python environment state has drifted ($python_problem); restore it, or run \`proj deactivate --force\` to leave anyway"
+      return 2
+    fi
+    if [ -n "$python_problem" ]; then
+      _proj_log_info "Forced: $python_problem"
+      [ "$leave_python" = 1 ] || _proj_log_info 'The Python environment is left as it is'
+    fi
+    if [ "$leave_python" = 1 ] && ! _proj_select_python_command "$python_manager"; then
+      if [ "$force" = 1 ]; then
+        _proj_log_info "$python_manager shell integration is unavailable; the Python environment is left as it is"
+        leave_python=0
+      else
+        _proj_log_error "$python_manager shell integration is unavailable"
+        return 2
+      fi
+    fi
   fi
 
-  _proj_cli _hook shutdown "$project_name" || return
+  if ! _proj_cli _hook shutdown "$project_name"; then
+    if [ "$force" = 1 ]; then
+      _proj_log_info 'The shutdown hook failed; continuing'
+    else
+      return 2
+    fi
+  fi
 
-  if [ -n "$mamba_env" ] && ! "$_proj_python_command" deactivate; then
-    _proj_log_error "$python_manager deactivation failed"
-    return 2
+  if [ "$leave_python" = 1 ] && ! "$_proj_python_command" deactivate; then
+    if [ "$force" = 1 ]; then
+      _proj_log_info "$python_manager deactivation failed; continuing"
+    else
+      _proj_log_error "$python_manager deactivation failed"
+      return 2
+    fi
   fi
   if ! module unload "$module_name"; then
     _proj_log_error 'Lmod project unload failed'
@@ -390,7 +427,25 @@ _proj_deactivate() {
   if [ "$change_directory" = 1 ] && [ -n "$previous_pwd" ] && [ -d "$previous_pwd" ]; then
     _proj_cd "$previous_pwd"
   fi
-  _proj_log_ok "Project '$project_name' deactivated ✨"
+  [ "$quiet" = 1 ] || _proj_log_ok "Project '$project_name' deactivated ✨"
+}
+
+# Leave and enter the active environment again, for a project whose record
+# changed under this shell. The directory the person is in stays; a later
+# `proj deactivate` still returns to where they were before the first activation.
+_proj_reload() {
+  [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
+  local project_name=$1 here=$PWD code
+  [ "${PROJ_ACTIVE-}" = "$project_name" ] || {
+    _proj_log_error 'Active project state has drifted; run `proj status`'
+    return 2
+  }
+  code=$(_proj_cli _shell deactivate --quiet) || return
+  eval "$code" || return
+  code=$(_proj_cli _shell activate "$project_name") || return
+  eval "$code" || return
+  [ "$PWD" = "$here" ] || [ ! -d "$here" ] || _proj_cd "$here"
+  return 0
 }
 
 # Reload the active environment after `proj use`/`proj unuse` changed its module
@@ -434,7 +489,7 @@ proj() {
   [ -n "${ZSH_VERSION-}" ] && emulate -L zsh
   local code
   case ${1-} in
-    activate|deactivate)
+    activate|deactivate|reload)
       code=$(_proj_cli _shell "$@") || return
       eval "$code"
       ;;

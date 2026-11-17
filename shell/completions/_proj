@@ -53,6 +53,7 @@ commands=(
   'list:List registered projects'
   'activate:Activate a project environment'
   'deactivate:Deactivate the current project'
+  'reload:Deactivate and activate the current project again'
   'share:Move a private environment to the shared registry'
   'unshare:Move a shared environment you created back to private'
   'access:Show or change who can see and change a shared environment'
@@ -129,6 +130,9 @@ fi
 case $words[2] in
   activate)
     (( CURRENT == 3 )) && _proj_project_names
+    ;;
+  deactivate)
+    _values 'option' --force
     ;;
   upgrade)
     _values 'option' --check --yes --force --ref

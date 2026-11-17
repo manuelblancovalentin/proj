@@ -133,13 +133,27 @@ This command requires the shell integration. Activating an environment owned
 by someone else prints a notice: its hooks and aliases run as you.
 .TP
 .B proj deactivate
+.RB [ \-\-force ]
 Reverse the activation performed in the current shell, including putting back
 any module your login had loaded that the environment displaced (switch off with
 .B restore_login_modules = false
 in the
 .B [behavior]
 table of the configuration). This also works when
-the environment was removed while active.
+the environment was removed while active. It leaves with the Python environment
+this shell activated, so it still works after someone changed the project's
+Python environment (it says what changed); a Python environment switched by hand
+is refused, naming what differs.
+.B \-\-force
+leaves anyway, keeping hands off whatever Python environment is active.
+.TP
+.B proj reload
+Leave and enter the active environment again, keeping the current directory,
+to use a Python environment that was changed after this shell activated it.
+.B proj activate
+in such a shell does the same.
+.B proj status
+reports it as using the previous Python environment.
 .TP
 .BR "proj use " "[" name[/version] "]... [--env " name "] [--list]"
 Use a library, suite, or tool in an environment (the active one, or

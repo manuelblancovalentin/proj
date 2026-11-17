@@ -6,13 +6,14 @@ from pathlib import Path
 
 from .config import Config
 from .metadata import MODULE_CATEGORIES, Project
+from .python_envs import manager_for
 
 
 def _lua(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def render(project: Project) -> str:
+def render(project: Project, manager: str = "") -> str:
     dependencies = [
         module
         for category in MODULE_CATEGORIES
@@ -40,6 +41,10 @@ def render(project: Project) -> str:
         lines.append(
             f"setenv(\"PROJ_MAMBA_ENV\", {_lua(project.python_environment)})"
         )
+        if manager:
+            # What this shell activated with, so it can be left even after the
+            # project's record changes (the manager may have changed too).
+            lines.append(f"setenv(\"PROJ_PYTHON_MANAGER\", {_lua(manager)})")
     for key, value in sorted(project.environment.items()):
         lines.append(f"pushenv({_lua(key)}, {_lua(project.expand(value))})")
     for key, entries in sorted(project.environment_paths.items()):
@@ -66,7 +71,7 @@ def render(project: Project) -> str:
 
 def materialize(config: Config, project: Project) -> tuple[Path, bool]:
     output = config.module_cache / "project" / f"{project.name}.lua"
-    content = render(project)
+    content = render(project, manager_for(config, project))
     digest = hashlib.sha256(content.encode()).hexdigest()
     digest_file = output.with_suffix(".sha256")
     current = digest_file.read_text().strip() if digest_file.is_file() else ""

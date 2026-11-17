@@ -221,8 +221,12 @@ contains a path or a user name. The format (`schema` 1):
 - `proj status --json` describes the active environment; `--env NAME` selects
   another. With none, `environment` is `null` and `state` is `"no environment"`.
 - `state` is `drift` (exit status 2) or `consistent`. `drift` lists the reasons:
-  modules or the Python environment not as the metadata says, or a dependency
-  file that changed since the environment was stamped.
+  modules or the Python environment not as the metadata says, a dependency
+  file that changed since the environment was stamped, or (in a shell that
+  activated the environment) a Python environment that was changed after that
+  shell activated it: "this shell uses the previous Python environment (...)".
+  The reasons are text for a person; a program should use `state` and its exit
+  status. Run in a shell, `status` compares with what that shell activated.
 - `loaded_modules` is Lmod's list as loaded now (names with versions), or `null`
   when the environment is not active in this shell.
 - `python.environment_source` (present with `python.environment`) says where the

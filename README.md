@@ -373,6 +373,24 @@ fails, everything already done is undone. Deactivation runs shutdown hooks,
 deactivates exactly the Python environment level proj created, unloads the
 module, and returns you to the previous directory.
 
+Deactivation leaves with what *this shell* activated, not with what the project
+records now. When someone changes the project's Python environment while you
+have it active (for example `proj set-python-env --env atlas ...` from another
+terminal or a website), `proj deactivate` still works and says so:
+
+```text
+proj: the Python environment of 'atlas' was changed after this shell activated it
+(it was atlas-3.11, it is now atlas-3.12); deactivating what this shell recorded;
+run `proj activate atlas` to use the new one
+```
+
+`proj reload` (or `proj activate atlas` in that shell) leaves and enters the
+project again, keeping your current directory, to use the new environment.
+`proj status` reports such a shell as "uses the previous Python environment".
+A Python environment you switched by hand (`conda activate other`) while the
+project was active is still refused, naming what differs; `proj deactivate
+--force` leaves anyway and keeps hands off the Python environment that is active.
+
 Only one environment is active per shell; deactivate before activating
 another. If your login already loaded modules the environment replaces (another
 version of the same tool, say), the environment's choice wins while it is
@@ -900,8 +918,10 @@ effective site configuration, registries, and Python manager.
 | `PROJ_GLOBAL_BIN`, `PROJ_GLOBAL_MAN`, `PROJ_GLOBAL_TLDR` | Link targets of `proj install` |
 
 While an environment is active, proj sets `PROJ_ACTIVE`, `PROJ_ROOT`,
-`PROJ_METADATA`, `PROJ_MODULE`, and `PROJ_MAMBA_ENV` (the Python
-environment). `PROJ_ACTIVE` is the one for other tools to read: it is non-empty
+`PROJ_METADATA`, `PROJ_MODULE`, `PROJ_MAMBA_ENV` (the Python
+environment) and `PROJ_PYTHON_MANAGER` (its manager); they record what this shell
+activated, which is what `proj deactivate` undoes even if the project's record
+changed since. `PROJ_ACTIVE` is the one for other tools to read: it is non-empty
 exactly while an environment is active in this shell. When proj draws the prompt
 marker it also exports `PROJ_PROMPT_TOKENS`, the names of the tokens it shows
 (see [Prompt markers](docs/prompt-markers.md)).
@@ -971,7 +991,8 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj list [--json] [--scope all\|shared\|private] [--under DIR]...` | List environments with scope and owner; `--json` prints a snapshot for other programs |
 | `proj catalog` | Print, as JSON, the modules, suites and bundles a person may add to a login |
 | `proj avail [category\|name] [--json]` | List the modules Lmod can load, by category |
-| `proj activate <name>` / `proj deactivate` | Enter or leave an environment |
+| `proj activate <name>` / `proj deactivate [--force]` | Enter or leave an environment; `--force` leaves although the Python environment was switched by hand |
+| `proj reload` | Leave and enter the active environment again, to pick up a record changed after this shell activated it |
 | `proj remove <name> [--yes] [--delete-files\|--keep-files]` | Delete an environment, asking first |
 | `proj current` | Print the active environment |
 | `proj status [--env NAME] [--json] [--checkout PATH]` | Show the active environment and any drift, including a Python environment older than its dependency file; `--json` prints a provenance record, `--checkout` adds a Git checkout's commit |
@@ -1029,8 +1050,11 @@ activation is stored outside the shell itself. See
 
 If you unload one of the environment's modules or switch Python environments
 by hand, `proj status` reports the drift and exits with status 2, and `proj
-deactivate` refuses to guess how to undo it. Restore the expected state (for
-example `conda activate atlas`) and deactivate again.
+deactivate` refuses to guess how to undo it, naming what differs. Restore the
+expected state (for example `conda activate atlas`) and deactivate again, or
+run `proj deactivate --force`. A project whose Python environment was *changed
+in its record* after the shell activated it is not drift: see
+[Activate and deactivate](#activate-and-deactivate).
 
 ![drift](docs/static/img/drift.jpg)
 

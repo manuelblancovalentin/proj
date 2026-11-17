@@ -126,6 +126,10 @@
 
 `proj deactivate`
 
+- Leave although the Python environment was switched by hand, or pick up a Python environment changed after activation:
+
+`proj deactivate --force`, `proj reload`
+
 - Delete a project environment, confirming first (the project files are kept):
 
 `proj remove {{project_name}}`
