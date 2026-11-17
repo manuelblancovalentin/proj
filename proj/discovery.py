@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .config import Config
 from .errors import AccessDenied, ProjError
+from . import overrides
 from .metadata import Project, load_project
 
 
@@ -52,14 +53,16 @@ def _metadata_files(root: Path, strict: bool, result: Discovery) -> list[Path]:
     return found
 
 
-def scan(config: Config, strict: bool = False) -> Discovery:
+def scan(config: Config, strict: bool = False, personal: bool = True) -> Discovery:
     """Load every environment, skipping invalid ones.
 
     Shared registries hold other people's metadata, so one broken document
     must not disable proj for everyone. Earlier roots take precedence, which
     lets a private environment shadow a shared one with the same name.
     With `strict`, a registry that exists but cannot be listed is an error and
-    an unreadable entry counts as a problem.
+    an unreadable entry counts as a problem. With `personal` (the default) a
+    person's own Python override replaces the Python link of an environment that
+    is not theirs; documents published for others are read without it.
     """
     result = Discovery()
     for root in config.project_roots:
@@ -85,12 +88,20 @@ def scan(config: Config, strict: bool = False) -> Discovery:
                 )
                 continue
             seen[project.name] = metadata_path
+            if personal and root != config.registry:
+                # An environment that is not the person's own may carry their
+                # own Python link (never anyone else's).
+                try:
+                    project = overrides.apply(config, project)
+                except ProjError as exc:
+                    result.problems.append((metadata_path, str(exc)))
+                    continue
             result.projects.setdefault(project.name, project)
     return result
 
 
-def discover(config: Config) -> dict[str, Project]:
-    return scan(config).projects
+def discover(config: Config, personal: bool = True) -> dict[str, Project]:
+    return scan(config, personal=personal).projects
 
 
 def resolve(config: Config, name: str) -> Project:

@@ -129,3 +129,27 @@ Prepended paths must be absolute after interpolation and remain beneath the
 project root. Hooks and future commands are argv arrays. Hooks run without a
 shell. Commands are validated and displayed by `proj env show`, but execution
 is deferred.
+
+## A person's Python override
+
+A shared (or other) environment's `python.environment` is the same for every
+member. A member who wants their own conda environment with it writes
+`<proj home>/overrides/<name>.toml` (`~/.proj/overrides/<name>.toml`), which
+`proj set-python-env --env NAME --mine` does:
+
+```toml
+schema = 1
+
+[python]
+manager = "conda"          # micromamba, conda or mamba
+environment = "my-atlas"   # a name or an absolute prefix
+```
+
+Nothing else is accepted: no hooks, no variables, no other keys. The file is read
+only for environments that are not the person's own, replaces `python.manager`
+and `python.environment` for that person, and never changes the shared document.
+An invalid or world-writable file makes that environment unusable for that person
+until it is fixed or removed (`--mine --unset`), so a typo never silently
+activates the shared Python environment instead. `proj config python.environment`
+still reads and writes the document's own value.
+

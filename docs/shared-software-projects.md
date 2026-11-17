@@ -16,6 +16,7 @@ environment was built from, and, only when you ask, which commit a checkout is a
 |---|---|
 | `import pkg` to resolve to your clone, only for you | `environment_paths` (below) |
 | A branch with different dependencies | `proj create --from` and your own Python environment |
+| Your own conda environment with the shared project, nothing else changed | `proj set-python-env --mine` (section 2b) |
 | To know the shared Python environment is out of date | `python.spec`, `proj python-env stamp`, `proj status` |
 | To record which commit and environment produced a result | `proj status --json --checkout` |
 
@@ -63,8 +64,31 @@ proj activate atlas-topic
 `--from` copies the modules, variables, paths, aliases and hooks and records
 where it came from. It is a snapshot: when `atlas` changes, `proj info
 --env atlas-topic` says "the original has changed since". Use a different name:
-a private environment shadows a shared one of the same name. `proj remove
-atlas-topic` deletes the copy and never the conda environment.
+a copy takes a new name, because `proj create` refuses a name that exists. `proj
+remove atlas-topic` deletes the copy and never the conda environment.
+
+## 2b. Your own Python environment with the shared project
+
+When the shared environment is right and only the Python environment should be
+yours, do not copy it. Record your own link, for you only:
+
+```sh
+proj set-python-env --env atlas --mine atlas-mine
+proj info --env atlas
+#   Python environment   atlas-mine
+#   Python override      yours; the shared environment links /projects/atlas/atlas.pyenv (conda)
+proj set-python-env --env atlas --mine --unset
+```
+
+Modules, variables, paths and the shared document stay as they are, for you
+and for everyone else; the file is `~/.proj/overrides/atlas.toml`.
+`proj status --env atlas --json` says `"environment_source": "override"`.
+A copy (`--from`, above) is for when the modules or variables change too.
+
+Same-name precedence: `proj create` and `proj share` refuse a name that already
+exists, so a private environment can only shadow a shared one of the same name
+when it was made before the shared one existed (or lives in another root).
+For a different Python environment under the same name, use `--mine`.
 
 An editable install made with `pip install --user` does **not** work as a
 lighter alternative. In a virtual environment (tested; a conda environment lays

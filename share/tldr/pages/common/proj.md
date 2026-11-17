@@ -96,6 +96,10 @@
 
 `proj set-python-env {{environment_name}}`
 
+- Use your own Python environment with a shared project, for you only:
+
+`proj set-python-env --env {{name}} --mine {{environment_name}}`
+
 - Put your own clone ahead of an installed package, for you only:
 
 `proj config environment_paths.PYTHONPATH.prepend='["${user.home}/{{project}}/repo/src"]'`

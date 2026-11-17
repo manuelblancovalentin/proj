@@ -203,6 +203,7 @@ contains a path or a user name. The format (`schema` 1):
   "python": {
     "manager": "conda",
     "environment": "atlas",
+    "environment_source": "shared",
     "dependencies": {
       "spec": "environment.yml",
       "state": "current",
@@ -224,9 +225,18 @@ contains a path or a user name. The format (`schema` 1):
   file that changed since the environment was stamped.
 - `loaded_modules` is Lmod's list as loaded now (names with versions), or `null`
   when the environment is not active in this shell.
+- `python.environment_source` (present with `python.environment`) says where the
+  Python link in use comes from: `shared` (the environment is not the caller's
+  own), `override` (the caller's own, `proj set-python-env --mine`) or `own` (an
+  environment of the caller's). The caller is whoever runs proj, so a service
+  that runs as itself sees its own overrides, not a person's.
 - `python.dependencies.state` is `no-spec`, `unreadable`, `unstamped`, `current`
   or `behind`. The dependency file is named by its file name only. `by` of the
-  stamp is not exported.
+  stamp is not exported. In words: `current` is up to date, `behind` is the file
+  changed since the stamp, `unstamped` is never stamped (never built from it as
+  far as proj knows), `no-spec` is no dependency file declared and `unreadable`
+  is one declared that cannot be read. With an override the state is still the
+  shared environment's: the file describes what the shared one was built from.
 - `checkout` and `checkout_*` appear only with `--checkout PATH`. `checkout_state`
   compares the checkout's copy of the file (the same name at its top, or the
   file itself if PATH is one) with the stamp: `matches`, `differs`, `missing` or

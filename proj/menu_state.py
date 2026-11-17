@@ -52,13 +52,18 @@ class MenuState:
 
     def identity(self) -> list[tuple[str, str]]:
         active = os.environ.get("PROJ_ACTIVE") == self.name
-        return [
+        rows = [
             ("Name", self.name),
             ("Scope", access.describe_scope(self.config, self.project)),
             ("Owner", access.owner_label(self.config, self.project)),
             ("Metadata", str(self.project.metadata_path)),
             ("Active here", "yes" if active else "no"),
         ]
+        if self.project.python_override:
+            # The Python link below is the shared document's; this person's own
+            # (proj set-python-env --mine) replaces it only for them.
+            rows.append(("Your Python", self.project.python_override.environment))
+        return rows
 
     # --- reading --------------------------------------------------------
 

@@ -59,6 +59,19 @@ class Derived:
 
 
 @dataclass(frozen=True)
+class PythonOverride:
+    """The person's own Python link for an environment that is not theirs
+    (`proj set-python-env --mine`). `manager` and `environment` are what the
+    environment now uses for this person; the shared link stays recorded here
+    so `proj info` can say what was replaced."""
+
+    manager: str
+    environment: str
+    shared_manager: str | None
+    shared_environment: str | None
+
+
+@dataclass(frozen=True)
 class Command:
     description: str
     argv: tuple[str, ...]
@@ -79,6 +92,7 @@ class Project:
     python_environment: str | None = None
     python_spec: str | None = None
     python_stamp: PythonStamp | None = None
+    python_override: PythonOverride | None = None
     derived: Derived | None = None
     modules: dict[str, tuple[str, ...]] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
@@ -88,6 +102,19 @@ class Project:
     startup_hooks: tuple[Hook, ...] = ()
     shutdown_hooks: tuple[Hook, ...] = ()
     commands: dict[str, Command] = field(default_factory=dict)
+
+    @property
+    def shared_manager(self) -> str | None:
+        """The manager the document itself records (not a person's override)."""
+        return self.python_override.shared_manager if self.python_override else self.python_manager
+
+    @property
+    def shared_python_environment(self) -> str | None:
+        return (
+            self.python_override.shared_environment
+            if self.python_override
+            else self.python_environment
+        )
 
     @property
     def visible_root(self) -> Path:

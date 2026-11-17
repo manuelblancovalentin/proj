@@ -15,7 +15,18 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from . import access, export, lmod, menu_runtime, provenance, python_envs, sharing, upgrade, uses
+from . import (
+    access,
+    export,
+    lmod,
+    menu_runtime,
+    overrides,
+    provenance,
+    python_envs,
+    sharing,
+    upgrade,
+    uses,
+)
 from .config import TOOL_ROOT, Config, load_config
 from .discovery import discover, resolve, scan
 from .doctor import run_checks
@@ -92,7 +103,7 @@ def cmd_list(config: Config, args: argparse.Namespace) -> int:
         config = dataclasses.replace(
             config, project_roots=tuple(r for r in config.project_roots if r != config.registry)
         )
-    found = scan(config, strict=args.json)
+    found = scan(config, strict=args.json, personal=not args.json)
     _report_skipped(found, quiet_unreadable=args.json)
     if args.json:
         document = export.environments_snapshot(
@@ -142,7 +153,7 @@ def _used_by(projects) -> dict[str, list[str]]:
 
 def _print_catalog(config: Config, query: str | None, as_json: bool) -> int:
     out = Output()
-    projects = list(discover(config).values())
+    projects = list(discover(config, personal=not as_json).values())
     entries = lmod.catalog(exclude=(config.module_cache,))
     if query:
         needle = query.lower()
@@ -464,6 +475,15 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
         ("Python manager", python_envs.manager_for(config, project)),
         ("Python environment", project.python_environment or "not configured"),
     ]
+    if project.python_override:
+        shared = project.shared_python_environment
+        rows.append(
+            (
+                "Python override",
+                "yours; the shared environment links "
+                + (f"{shared} ({project.shared_manager or config.python_manager})" if shared else "no Python environment"),
+            )
+        )
     if project.python_spec:
         rows.append(("Python dependencies", provenance.describe(provenance.freshness(project))))
     if project.derived:
@@ -619,9 +639,54 @@ def _python_environment(config: Config, manager: str, text: str, shared: bool) -
     return str(available[text]) if shared else text
 
 
+def _reactivate_hint(project: Project) -> None:
+    if os.environ.get("PROJ_ACTIVE") == project.name:
+        print("Reactivate the project to apply the change.")
+
+
+def _set_python_override(config: Config, project: Project, args: argparse.Namespace) -> int:
+    if access.scope(config, project) == "private":
+        raise ProjError(
+            f"{project.name!r} is your own environment: link its Python environment "
+            "with `proj set-python-env`, without --mine"
+        )
+    shared = project.shared_python_environment
+    shared_label = (
+        f"{shared} ({project.shared_manager or config.python_manager})"
+        if shared
+        else "no Python environment"
+    )
+    if args.unset:
+        if args.environment or args.manager:
+            raise ProjError("--mine --unset takes no environment or manager")
+        if not overrides.remove(config, project.name):
+            raise ProjError(f"you have no Python override for {project.name!r}")
+        print(f"Removed your Python override of {project.name!r}.")
+        print(f"It uses the shared environment's again: {shared_label}.")
+        _reactivate_hint(project)
+        return 0
+    if not args.environment:
+        raise ProjError("name the Python environment to use: proj set-python-env --mine <environment>")
+    manager = args.manager or python_envs.manager_for(config, project)
+    environment = _python_environment(config, manager, args.environment, False)
+    target = overrides.write(config, project.name, manager, environment)
+    print(f"Your Python environment for {project.name!r} is now {manager} {environment!r}.")
+    print(f"The shared environment is unchanged for everyone else; it links {shared_label}.")
+    print(f"Recorded in {target}; remove it with `proj set-python-env --env {project.name} --mine --unset`.")
+    _reactivate_hint(project)
+    return 0
+
+
 def cmd_set_python_env(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
-    manager = args.manager or python_envs.manager_for(config, project)
+    if args.unset and not args.mine:
+        raise ProjError("--unset goes with --mine")
+    if args.mine:
+        return _set_python_override(config, project, args)
+    if not args.environment:
+        raise ProjError("name the Python environment to link")
+    # The document's own manager, not a person's override of it.
+    manager = args.manager or project.shared_manager or config.python_manager
     environment = _python_environment(
         config, manager, args.environment, access.scope(config, project) == "shared"
     )
@@ -762,6 +827,7 @@ def _status_document(config, project, is_active, drift, build, git, loaded) -> d
     python = export._python(config, project)
     if python:
         python.pop("prefix", None)
+        python["environment_source"] = overrides.source(config, project)
     document["environment"] = {
         "name": project.name,
         "scope": access.scope(config, project),
@@ -783,7 +849,8 @@ def _status_document(config, project, is_active, drift, build, git, loaded) -> d
 def _python_label(config: Config, project: Project) -> str:
     if not project.python_environment:
         return "not configured"
-    return f"{project.python_environment} ({python_envs.manager_for(config, project)})"
+    label = f"{project.python_environment} ({python_envs.manager_for(config, project)})"
+    return label + (" - your override" if project.python_override else "")
 
 
 def _module_state(config: Config, project: Project) -> str:
@@ -1373,8 +1440,16 @@ def build_parser() -> argparse.ArgumentParser:
     set_python = sub.add_parser(
         "set-python-env", help="link an existing conda-family Python environment"
     )
-    set_python.add_argument("environment")
+    set_python.add_argument("environment", nargs="?")
     set_python.add_argument("--manager", choices=PYTHON_MANAGERS)
+    set_python.add_argument(
+        "--mine",
+        action="store_true",
+        help="use this Python environment for you only; the environment stays as it is for everyone else",
+    )
+    set_python.add_argument(
+        "--unset", action="store_true", help="with --mine: go back to the environment's own Python link"
+    )
     set_python.add_argument(
         "--env", "--project", dest="project", metavar="NAME"
     )

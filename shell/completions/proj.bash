@@ -117,7 +117,7 @@ _proj_complete() {
         ;;
       set-python-env)
         candidates=$(_proj_cli python-env list 2>/dev/null)
-        candidates+=$'\n--env\n--manager'
+        candidates+=$'\n--env\n--manager\n--mine\n--unset'
         ;;
       python-env)
         if (( COMP_CWORD == 2 )); then

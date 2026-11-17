@@ -164,6 +164,19 @@ activation.
   (the names; the contract for other tools) and the internal `PROJ_PROMPT_TABLE`.
   Outside an environment proj touches nothing of the manager's or the prompt.
   The emoji list in the doc is the one registry: add a row when adding a token.
+- A person's Python override (`proj set-python-env --mine`, `proj/overrides.py`)
+  is one file, `<proj home>/overrides/<name>.toml` (mode 0600), holding only
+  `[python] manager` and `environment`; unknown keys are refused. `discovery.scan`
+  applies it to environments outside the private registry, replacing
+  `python_manager`/`python_environment` on the `Project` (so activation, the
+  generated module, `info` and `status` agree) and recording the shared link in
+  `Project.python_override`. It never writes the shared document, runs nothing,
+  and is ignored for a private environment. An invalid or world-writable file
+  makes that environment unusable for that person (reported with the override's
+  path) rather than silently using the shared link. `status --json` reports
+  `python.environment_source` (`shared`, `override`, `own`); `list --json`
+  never reads overrides. `proj create` and `proj share` still refuse an
+  existing name.
 - Precedence is private, shared, then extra roots; a private environment
   shadows a shared one with the same name.
 - `proj share`/`proj unshare` move an environment between your private and the

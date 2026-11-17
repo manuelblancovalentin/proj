@@ -406,6 +406,26 @@ init`, `conda init zsh`, `mamba shell init`). A `mamba` that was never
 initialized falls back to `conda`, which manages the same environments. The
 manager's root environment appears as `base`.
 
+**Your own Python environment in a shared environment.** When an environment is
+not yours, you can use your own conda environment with it while everything
+else (modules, variables, paths) stays as it is for everybody:
+
+```sh
+proj set-python-env --env atlas --mine my-atlas        # a name, or an absolute prefix
+proj set-python-env --env atlas --mine my-atlas --manager conda
+proj info --env atlas                                  # "Python override: yours; the shared environment links ..."
+proj set-python-env --env atlas --mine --unset         # back to the shared one
+```
+
+It is one small file of yours, `~/.proj/overrides/atlas.toml` (a manager and an
+environment, mode 0600; `$PROJ_HOME/overrides` when `PROJ_HOME` is set). The
+shared document is never written, nobody else sees the choice, and nothing runs
+beyond what the environment already runs. `proj info`, `proj status` and
+`proj status --json` (`python.environment_source`: `override`, `shared` or
+`own`) say that it is in effect. Reactivate the environment to apply a change.
+`--unset` removes only that file, never a conda environment. For an environment
+of your own, link the Python environment normally (no `--mine`).
+
 ### Variables, paths, and aliases
 
 ```sh
@@ -960,6 +980,8 @@ Keys accepted by `proj config`: `project.description`, `project.root`,
 | `proj config [--env NAME] --unset <key>` | Remove a key from the metadata |
 | `proj configmenu [--env NAME] [--setup]` | Edit an environment in an interactive menu |
 | `proj set-python-env [--env NAME] [--manager M] <environment>` | Link a Python environment |
+| `proj set-python-env [--env NAME] --mine [--manager M] <environment>` | Use your own Python environment with a shared one, for you only |
+| `proj set-python-env [--env NAME] --mine --unset` | Go back to the shared Python environment |
 | `proj python-env list [--manager M]` | List Python environments |
 | `proj python-env stamp [--env NAME]` | Record the hash of `python.spec`, after the Python environment was rebuilt from it |
 | `proj module {list\|add\|remove} <category> [module] [--env NAME]` | Manage Lmod modules |

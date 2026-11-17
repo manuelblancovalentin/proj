@@ -670,6 +670,21 @@ share_env share lent --group-writable >/dev/null || fail "proj share --group-wri
   fail "group-writable permissions after share"
 pass "proj share and proj unshare move an environment between registries unchanged"
 
+# A person's own Python environment with a shared environment: one private file.
+mkdir -p "$tmp/mamba/envs/mine/conda-meta"
+cp "$shared_registry/team/project.toml" "$tmp/team.before"
+share_env set-python-env --env team --mine "$tmp/mamba/envs/mine" >/dev/null || fail "set-python-env --mine"
+cmp -s "$tmp/team.before" "$shared_registry/team/project.toml" || fail "--mine changed the shared document"
+[ "$(stat -c '%a' "$install_home/.proj/overrides/team.toml")" = 600 ] || fail "override file mode"
+share_env info --env team | grep -q "Python override *yours" || fail "info says the override is in effect"
+share_env status --env team --json | grep -q '"environment_source": "override"' || fail "status --json source"
+share_env list --json | grep -qF "$tmp/mamba/envs/mine" && fail "list --json carried a person's override"
+HOME="$tmp/nobody-home" "$shared_proj" info --env team | grep -q "Python override" && fail "another person saw the override"
+share_env set-python-env --env team --mine --unset >/dev/null || fail "set-python-env --mine --unset"
+[ ! -e "$install_home/.proj/overrides/team.toml" ] || fail "--unset left the file"
+share_env status --env team --json | grep -q '"environment_source": "shared"' || fail "status --json source after --unset"
+pass "a person's own Python environment overrides a shared one without touching it"
+
 # An environment can belong to a group other than the registry's, and be limited to it.
 other_group=$(id -Gn | tr ' ' '\n' | grep -vx "$(id -gn)" | head -n 1)
 if [ -n "$other_group" ]; then

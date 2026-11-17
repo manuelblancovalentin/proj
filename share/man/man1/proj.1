@@ -95,7 +95,13 @@ where it was.
 List registered project environments with their scope and owner (for a shared
 environment, user:group). An environment whose project folder you cannot enter
 counts with the ones you cannot read. A private
-environment shadows a shared one with the same name. Invalid documents are
+environment shadows a shared one with the same name (which
+.B proj create
+and
+.B proj share
+refuse to make on purpose; see
+.BR "proj set-python-env --mine" ).
+Invalid documents are
 reported and skipped; shared environments you have no permission to read (limited
 to another group) are left out and counted in one line.
 .B --json
@@ -235,7 +241,7 @@ error. The project name and root are required and stay;
 .I environment_paths.VARIABLE
 removes both lists of that variable.
 .TP
-.BR "proj set-python-env " "[--env " name "] [--manager " manager "] " environment
+.BR "proj set-python-env " "[--env " name "] [--manager " manager "] [--mine] [--unset] " [ environment ]
 Validate and link an existing environment of
 .BR micromamba ,
 .BR conda ,
@@ -247,6 +253,20 @@ then to the configured
 the same Python environment.
 .B proj
 does not create the Python environment.
+With
+.B --mine
+the environment is linked for you only: one small file of yours
+.RI "(~/.proj/overrides/" name ".toml)",
+read for environments that are not your own, replaces the Python link while
+every other part of the environment (modules, variables, paths) and the shared
+document stay as they are for everyone else. A private environment of yours is
+edited normally.
+.B --mine --unset
+removes that file and never a Python environment. Reactivate to apply.
+.B proj info
+and
+.B proj status
+say when an override is in effect.
 .TP
 .BR "proj configmenu " "[--env " name "] [--setup]"
 Edit an environment in a full-screen menu: fixed facts and editable settings

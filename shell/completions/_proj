@@ -225,7 +225,7 @@ case $words[2] in
     if (( CURRENT == 3 )); then
       _proj_python_environments
     else
-      _values 'option' --env --manager
+      _values 'option' --env --manager --mine --unset
     fi
     ;;
   python-env)
