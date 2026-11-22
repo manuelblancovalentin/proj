@@ -1,0 +1,6 @@
+{"id": "skill-proj-modules-add", "cat": "skills", "q": "How do I add a compiler or tool to my project environment with proj?", "facts": ["proj use --env demo", "name/version", "proj unuse"], "pages": ["skills/proj-modules"]}
+{"id": "skill-proj-modules-avail", "cat": "skills", "q": "How do I see which modules I can add to a project?", "facts": ["proj avail", "proj use --list", "proj catalog"], "pages": ["skills/proj-modules"]}
+{"id": "skill-proj-modules-reload", "cat": "skills", "q": "I ran proj module add while my project was active but the tool is not there. Why?", "facts": ["does **not** reload", "proj reload"], "pages": ["skills/proj-modules"]}
+{"id": "skill-proj-modules-path-order", "cat": "skills", "q": "Two modules of my project provide the same command and I get the wrong one. Which one wins?", "facts": ["loaded last", "found first", "PATH"], "pages": ["skills/proj-modules"]}
+{"id": "skill-proj-modules-shadow", "cat": "skills", "q": "proj shows different modules than the shared project my teammates use, with the same name. Why?", "facts": ["private environment of the same name", "Scope"], "pages": ["skills/proj-modules"]}
+{"id": "skill-proj-modules-library", "cat": "skills", "q": "How do I add a library module to my project, and can I look at its files?", "facts": ["added by name", "never opens or lists"], "pages": ["skills/proj-modules"]}
