@@ -257,6 +257,7 @@ activation.
   initialization, optional dependency installation).
 - `templates/`: generated Lmod modulefile reference.
 - `docs/`: architecture, schema, lifecycle, and troubleshooting.
+- `skills/`: one folder per task (`SKILL.md`, `smoke.sh`, `golden.jsonl`), installed with the tool (`INSTALLED_ITEMS` in `install.sh` and `proj/upgrade.py` list what is copied; an older source without `skills/` still installs).
 - `tests/`: standard-library unit and shell integration tests.
 
 Runtime files live under XDG directories:

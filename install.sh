@@ -11,7 +11,7 @@ set -eu
 
 PROJ_REPO=${PROJ_REPO:-manuelblancovalentin/proj}
 PROJ_REF=${PROJ_REF:-master}
-INSTALLED_ITEMS='bin proj shell share templates docs README.md'
+INSTALLED_ITEMS='bin proj shell share templates docs README.md skills'
 MARKER=.proj-install
 
 prefix=
@@ -466,11 +466,14 @@ fi
 
 stage=$(mktemp -d "$prefix/.install.XXXXXX")
 for item in $INSTALLED_ITEMS; do
+  # A source from before the skills existed has none: that is not an error.
+  [ "$item" = skills ] && [ ! -e "$source_dir/$item" ] && continue
   cp -R "$source_dir/$item" "$stage/$item"
 done
 find "$stage" -name __pycache__ -prune -exec rm -rf {} +
 chmod -R u+rwX,go+rX,go-w "$stage"
 for item in $INSTALLED_ITEMS; do
+  [ -e "$stage/$item" ] || continue
   rm -rf -- "${prefix:?}/$item"
   mv "$stage/$item" "$prefix/$item"
 done

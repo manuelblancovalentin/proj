@@ -34,7 +34,7 @@ DEFAULT_REPO = "manuelblancovalentin/proj"
 DEFAULT_REF = "master"
 MARKER = ".proj-install"
 # What install.sh replaces; kept in sync with INSTALLED_ITEMS there.
-INSTALLED_ITEMS = ("bin", "proj", "shell", "share", "templates", "docs", "README.md")
+INSTALLED_ITEMS = ("bin", "proj", "shell", "share", "templates", "docs", "README.md", "skills")
 PREVIOUS = ".previous"
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _REF = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_./-]*$")

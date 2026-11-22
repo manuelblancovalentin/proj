@@ -696,6 +696,7 @@ HOME="$install_home" SHELL=/bin/bash sh "$root/install.sh" --yes --mode private 
   --prefix "$install_prefix" --no-install-deps >"$tmp/install-output" 2>&1 ||
   fail "private installation: $(cat "$tmp/install-output")"
 [ "$("$install_prefix/bin/proj" --version)" = "proj $version" ] || fail "installed version"
+[ -f "$install_prefix/skills/proj-activate/SKILL.md" ] && [ -x "$install_prefix/skills/proj-activate/smoke.sh" ] || fail "the installer must install the skills"
 [ ! -e "$install_prefix/tests" ] && [ -z "$(find "$install_prefix" -name __pycache__)" ] ||
   fail "installation copied development files"
 grep -qF ". $install_prefix/shell/init.bash" "$install_home/.bashrc" ||
@@ -1705,7 +1706,7 @@ upgrade_remote="$tmp/remote"
 make_remote() { # make_remote <ref> <version>
   stage="$tmp/remote-stage-$1"
   mkdir -p "$stage/proj-$1" "$upgrade_remote/owner/name/archive"
-  for item in bin proj shell share templates docs README.md install.sh; do
+  for item in bin proj shell share templates docs README.md skills install.sh; do
     cp -R "$root/$item" "$stage/proj-$1/$item"
   done
   find "$stage" -name __pycache__ -prune -exec rm -rf {} +
@@ -1756,6 +1757,7 @@ grep -q 'kept across upgrades' "$up_prefix/etc/config.toml" || fail "upgrade rep
 grep -q "__version__ = \"$version\"" "$up_prefix/.previous/proj/__init__.py" ||
   fail "upgrade did not keep the previous version"
 [ "$(cat "$up_prefix/.previous/.proj-install")" = "$version" ] || fail "previous version marker"
+[ -f "$up_prefix/skills/proj-python/SKILL.md" ] || fail "upgrade did not install the skills"
 remote_env "$up_prefix/bin/proj" upgrade --check >/dev/null || fail "upgrade --check after upgrading"
 remote_env "$up_prefix/bin/proj" upgrade --yes 2>&1 | grep -q 'already up to date' ||
   fail "upgrade to the same version"
