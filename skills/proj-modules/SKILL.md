@@ -5,7 +5,7 @@ description: Use when you want to add or remove tools (compilers, toolchains, ap
 
 # Add and remove the tools of a project
 
-Verified 2026-11-22 with proj 0.10.0 and Lmod 9.4.2, using invented modules (`gcc`, `cmake`, `simtool`, `pdk-demo`, `suite-team`) in a scratch module folder. Which modules exist, and their categories, depend on the modulefiles your site provides (`MODULEPATH`; `proj doctor` checks it): use `proj avail` on your installation.
+Verified 2026-11-22 with proj 0.10.1 and Lmod 9.4.2, using invented modules (`gcc`, `cmake`, `simtool`, `pdk-demo`, `suite-team`) in a scratch module folder. Which modules exist, and their categories, depend on the modulefiles your site provides (`MODULEPATH`; `proj doctor` checks it): use `proj avail` on your installation.
 
 ## What can I add?
 ```bash

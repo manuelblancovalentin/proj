@@ -5,7 +5,7 @@ description: Use when you want to enter or leave a project environment with proj
 
 # Activate a project and choose where the shell lands
 
-Verified 2026-11-22 with proj 0.10.0 (the `--mine` behavior settings do not exist in 0.9.0 or older: check `proj --version`), in Bash with Lmod 9.4.2. Anything not listed here is not verified.
+Verified 2026-11-22 with proj 0.10.1 (the `--mine` behavior settings do not exist in 0.9.0 or older: check `proj --version`), in Bash with Lmod 9.4.2. Anything not listed here is not verified.
 
 ## How do I enter and leave a project?
 ```bash
