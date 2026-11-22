@@ -5,7 +5,7 @@ description: Use when you want to create a proj project environment, share it wi
 
 # Create, share and remove a project environment
 
-Verified 2026-11-22 with proj 0.9.0 in a scratch HOME with a scratch shared registry and your own primary group.
+Verified 2026-11-22 with proj 0.10.0 in a scratch HOME with a scratch shared registry and your own primary group.
 
 ## How do I create an environment?
 ```bash

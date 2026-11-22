@@ -5,7 +5,7 @@ description: Use when you want to link a conda-family Python environment to a pr
 
 # The Python environment of a project, and your own
 
-Verified 2026-11-22 with proj 0.9.0 (micromamba on the host; paths used instead of environment names, so no environment was built). Not verified: activating a real conda or mamba environment through proj with a personal setting.
+Verified 2026-11-22 with proj 0.10.0 (micromamba on the host; paths used instead of environment names, so no environment was built). Not verified: activating a real conda or mamba environment through proj with a personal setting.
 
 ## How do I link a Python environment to a project?
 proj does not build Python environments; it records which existing one to activate.

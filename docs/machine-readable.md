@@ -65,7 +65,7 @@ the shared registry (`proj create ... --shared`) and its folder is under `DIR`.
 ```json
 {
   "schema": 1,
-  "proj_version": "0.9.0",
+  "proj_version": "0.10.0",
   "generated": "2026-10-27T18:00:00Z",
   "skipped": 0,
   "unreadable": 0,
@@ -142,7 +142,7 @@ tree) and answers for the person who runs it.
 ```json
 {
   "schema": 1,
-  "proj_version": "0.9.0",
+  "proj_version": "0.10.0",
   "generated": "2026-10-27T18:00:00Z",
   "modules": [
     {"name": "simtool", "category": "application", "versions": ["20.1", "21.1"],
@@ -193,7 +193,7 @@ contains a path or a user name. The format (`schema` 1):
 ```json
 {
   "schema": 1,
-  "proj_version": "0.9.0",
+  "proj_version": "0.10.0",
   "generated": "2026-10-30T20:09:50Z",
   "environment": {"name": "atlas", "scope": "shared", "active": true, "copied_from": null},
   "state": "consistent",

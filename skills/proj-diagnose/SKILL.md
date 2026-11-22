@@ -5,7 +5,7 @@ description: Use when a proj command fails or a project environment does not loo
 
 # Read the state of proj and fix common problems
 
-Verified 2026-11-22 with proj 0.9.0 and Lmod 9.4.2 in a scratch HOME. Anything not listed is not verified.
+Verified 2026-11-22 with proj 0.10.0 and Lmod 9.4.2 in a scratch HOME. Anything not listed is not verified.
 
 ## What is active, and what is this project?
 ```bash
