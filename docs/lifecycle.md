@@ -24,6 +24,10 @@ adapter state.
 Activating while another project is active fails. Lmod's `family("project")`
 provides the underlying exclusivity.
 
+Activation enters the project root, or the person's `activate_directory` when it
+gives an absolute folder that exists and can be entered (the root otherwise).
+`change_directory = false`, globally or for the project, enters nothing.
+
 ## Deactivation
 
 1. Verify Python environment state has not drifted from what *this shell*

@@ -447,6 +447,60 @@ done
 rm -rf "$swap_root"
 pass "a shell can leave, reload and report a project whose Python record changed; a hand edit is refused"
 
+# activate_directory: where `proj activate` leaves the shell, per person and per project.
+dir_root="$tmp/projects/landing"
+mkdir -p "$dir_root/$(id -un)"
+cat > "$dir_root/project.toml" <<EOF
+schema = 1
+
+[project]
+name = "landing"
+root = "$dir_root"
+EOF
+for dir_shell in bash zsh; do
+  for dir_case in \
+    "none::$dir_root" \
+    "global:[behavior]\nactivate_directory = \"\${project.root}/\${user}\":$dir_root/$(id -un)" \
+    "missing:[behavior]\nactivate_directory = \"\${project.root}/nobody-here\":$dir_root" \
+    "relative:[behavior]\nactivate_directory = \"work\":$dir_root" \
+    "mine:[behavior]\nactivate_directory = \"\${project.root}/nobody-here\":$dir_root/$(id -un)" \
+    "stay:[behavior]\nchange_directory = false\nactivate_directory = \"\${project.root}/\${user}\":STAY"; do
+    dir_name=${dir_case%%:*}; dir_rest=${dir_case#*:}
+    dir_expect=${dir_rest##*:}; dir_text=${dir_rest%:*}
+    mkdir -p "$tmp/landing-config"
+    printf 'schema = 1\n%b\n' "$dir_text" > "$tmp/landing-config/config.toml"
+    rm -rf "$tmp/landing-config/projects"
+    if [ "$dir_name" = mine ]; then
+      # Your own override for this environment beats the global key.
+      PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" PROJ_HOME="$tmp/landing-home" \
+        PROJ_CONFIG="$tmp/landing-config/config.toml" PROJ_SITE_CONFIG="$tmp/none.toml" \
+        "$root/bin/proj" config --env landing --mine 'behavior.activate_directory=${project.root}/${user}' \
+        >/dev/null || fail "proj config --mine behavior.activate_directory"
+    fi
+    PROJ_PROJECT_ROOTS="$tmp/projects" PROJ_CACHE_HOME="$tmp/cache" PROJ_HOME="$tmp/landing-home" \
+      PROJ_CONFIG="$tmp/landing-config/config.toml" PROJ_SITE_CONFIG="$tmp/none.toml" \
+      "$dir_shell" -f -c '
+        [ -n "${BASH_VERSION-}" ] && set +o posix
+        module() {
+          case $1 in
+            load) export PROJ_ACTIVE=landing PROJ_MODULE=$2 LOADEDMODULES=$2 ;;
+            unload) unset PROJ_ACTIVE PROJ_MODULE LOADEDMODULES ;;
+          esac
+        }
+        if [ -n "${BASH_VERSION-}" ]; then . "$1/shell/init.bash"; else source "$1/shell/init.zsh"; fi
+        start=$PWD
+        proj activate landing >/dev/null 2>&1 || exit 11
+        want=$2; [ "$want" = STAY ] && want=$start
+        [ "$PWD" = "$want" ] || { echo "landed in $PWD, wanted $want" >&2; exit 12; }
+        proj deactivate >/dev/null 2>&1 || exit 13
+        [ "$PWD" = "$start" ] || { echo "deactivated into $PWD, wanted $start" >&2; exit 14; }
+      ' "$dir_shell" "$root" "$dir_expect" 2>"$tmp/landing-err" ||
+      fail "$dir_shell activate_directory case '$dir_name': $(cat "$tmp/landing-err")"
+  done
+done
+rm -rf "$dir_root"
+pass "proj activate lands in the person's activate_directory (global or --mine), falls back to the root, and change_directory = false wins"
+
 forge_root="$tmp/projects/forge"
 mkdir -p "$forge_root"
 cat > "$forge_root/project.toml" <<EOF
@@ -765,13 +819,23 @@ mkdir -p "$tmp/mamba/envs/mine/conda-meta"
 cp "$shared_registry/team/project.toml" "$tmp/team.before"
 share_env set-python-env --env team --mine "$tmp/mamba/envs/mine" >/dev/null || fail "set-python-env --mine"
 cmp -s "$tmp/team.before" "$shared_registry/team/project.toml" || fail "--mine changed the shared document"
-[ "$(stat -c '%a' "$install_home/.proj/overrides/team.toml")" = 600 ] || fail "override file mode"
+[ "$(stat -c '%a' "$install_home/.config/proj/projects/team.toml")" = 600 ] || fail "personal settings file mode"
 share_env info --env team | grep -q "Python override *yours" || fail "info says the override is in effect"
 share_env status --env team --json | grep -q '"environment_source": "override"' || fail "status --json source"
 share_env list --json | grep -qF "$tmp/mamba/envs/mine" && fail "list --json carried a person's override"
 HOME="$tmp/nobody-home" "$shared_proj" info --env team | grep -q "Python override" && fail "another person saw the override"
 share_env set-python-env --env team --mine --unset >/dev/null || fail "set-python-env --mine --unset"
-[ ! -e "$install_home/.proj/overrides/team.toml" ] || fail "--unset left the file"
+[ ! -e "$install_home/.config/proj/projects/team.toml" ] || fail "--unset left the file"
+# A Python link kept by proj 0.9.0 still counts, and moves into the new file at the next change.
+mkdir -p "$install_home/.proj/overrides"
+printf 'schema = 1\n\n[python]\nmanager = "micromamba"\nenvironment = "%s"\n' "$tmp/mamba/envs/mine" \
+  >"$install_home/.proj/overrides/team.toml"
+share_env status --env team --json | grep -q '"environment_source": "override"' || fail "0.9.0 override file not read"
+share_env config --env team --mine behavior.change_directory=false >/dev/null || fail "config --mine behavior"
+[ ! -e "$install_home/.proj/overrides/team.toml" ] || fail "0.9.0 file was not folded in"
+grep -q "^environment = \"$tmp/mamba/envs/mine\"" "$install_home/.config/proj/projects/team.toml" || fail "0.9.0 link lost"
+share_env config --env team --mine --unset python >/dev/null && share_env config --env team --mine --unset behavior.change_directory >/dev/null || fail "forget settings"
+[ ! -e "$install_home/.config/proj/projects/team.toml" ] || fail "last --unset left the file"
 share_env status --env team --json | grep -q '"environment_source": "shared"' || fail "status --json source after --unset"
 pass "a person's own Python environment overrides a shared one without touching it"
 

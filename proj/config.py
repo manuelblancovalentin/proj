@@ -30,7 +30,33 @@ CONFIG_KEYS = {
     "prompt",
 }
 
-BEHAVIOR_KEYS = {"change_directory", "run_startup_hooks", "restore_login_modules"}
+# The settings of the `[behavior]` table. Each can be set for everyone in the
+# site or user configuration, and for one person and one environment with
+# `proj config --env NAME --mine behavior.KEY=VALUE` (proj/userconfig.py, which
+# lists them as overridable by taking this registry). To add a setting, give it
+# a type here and a field in `Behavior`; validation, the override and its
+# messages follow. (`bool` settings are strict: a quoted "false" is refused.
+# `str` settings are non-empty.)
+BEHAVIOR_SETTINGS: dict[str, type] = {
+    "change_directory": bool,
+    "run_startup_hooks": bool,
+    "restore_login_modules": bool,
+    "activate_directory": str,
+}
+BEHAVIOR_KEYS = set(BEHAVIOR_SETTINGS)
+
+
+@dataclass(frozen=True)
+class Behavior:
+    """What activation and deactivation do, for one project."""
+
+    change_directory: bool = True
+    run_startup_hooks: bool = True
+    # Load back the modules a login had when an environment displaced them.
+    restore_login_modules: bool = True
+    # Where activation leaves the shell: a template (`${project.root}`,
+    # `${user}`, ...) or None for the project root.
+    activate_directory: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +69,9 @@ class Config:
     shared_registry: Path | None = None
     group: str | None = None
     site_config: Path | None = None
+    # The folder of the person's configuration file; `projects/NAME.toml` in it
+    # holds their settings for one environment (proj/userconfig.py).
+    user_config_dir: Path | None = None
     python_manager: str = "micromamba"
     # Module-name prefixes and exact names that mark protected libraries;
     # machine-readable output never lists such names among ordinary modules
@@ -53,7 +82,19 @@ class Config:
     run_startup_hooks: bool = True
     # Load back the modules a login had when an environment displaced them.
     restore_login_modules: bool = True
+    activate_directory: str | None = None
     prompt: PromptSettings = PromptSettings()
+
+    @property
+    def behavior(self) -> Behavior:
+        """The behavior set for everyone who uses this configuration. A
+        person's own choice for one environment is `userconfig.behavior`."""
+        return Behavior(
+            change_directory=self.change_directory,
+            run_startup_hooks=self.run_startup_hooks,
+            restore_login_modules=self.restore_login_modules,
+            activate_directory=self.activate_directory,
+        )
 
     def is_library(self, name: str) -> bool:
         """True for a protected library: listed by name, or starting with a prefix."""
@@ -89,6 +130,26 @@ def _optional_string(data: dict, key: str, source: str) -> str | None:
     return value
 
 
+def behavior_table(value: object, label: str, source: str) -> dict:
+    """A table of behavior settings (`[behavior]`, or `[behavior]` of a person's
+    override of one environment), checked: known keys, and each of its type."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{source}: {label} must be a table")
+    unknown = sorted(set(value) - BEHAVIOR_KEYS)
+    if unknown:
+        raise ConfigError(f"{source}: unknown {label} key(s): {', '.join(unknown)}")
+    for key, setting in value.items():
+        if BEHAVIOR_SETTINGS[key] is bool:
+            # A quoted "false" must not read as true: these switches are strict.
+            if not isinstance(setting, bool):
+                raise ConfigError(f"{source}: {label}.{key} must be true or false")
+        elif not isinstance(setting, str) or not setting.strip():
+            raise ConfigError(f"{source}: {label}.{key} must be a non-empty string")
+    return value
+
+
 def _home() -> Path:
     """The home directory, or a path that cannot exist when there is none.
 
@@ -121,17 +182,12 @@ def load_config() -> Config:
     user = _read(config_file)
     data = {**site, **user}
     source = str(config_file if config_file.is_file() else site_file)
-    behaviors = (site.get("behavior", {}), user.get("behavior", {}))
-    if not all(isinstance(item, dict) for item in behaviors):
-        raise ConfigError("behavior must be a table")
-    behavior = {**behaviors[0], **behaviors[1]}
-    unknown = sorted(set(behavior) - BEHAVIOR_KEYS)
-    if unknown:
-        raise ConfigError(f"unknown behavior key(s): {', '.join(unknown)}")
-    for key in sorted(behavior):
-        # A quoted "false" must not read as true: these switches are strict.
-        if not isinstance(behavior[key], bool):
-            raise ConfigError(f"behavior.{key} must be true or false")
+    behavior = Behavior(
+        **{
+            **behavior_table(site.get("behavior"), "behavior", "site configuration"),
+            **behavior_table(user.get("behavior"), "behavior", "user configuration"),
+        }
+    )
 
     raw_registry = _optional_string(data, "registry", source)
     if "PROJ_HOME" in os.environ or not raw_registry:
@@ -194,11 +250,13 @@ def load_config() -> Config:
         shared_registry=shared_registry,
         group=group,
         site_config=site_file if site_file.is_file() else None,
+        user_config_dir=config_file.parent,
         python_manager=python_manager,
         library_prefixes=tuple(raw_prefixes),
         library_names=tuple(raw_names),
-        change_directory=bool(behavior.get("change_directory", True)),
-        run_startup_hooks=bool(behavior.get("run_startup_hooks", True)),
-        restore_login_modules=bool(behavior.get("restore_login_modules", True)),
+        change_directory=behavior.change_directory,
+        run_startup_hooks=behavior.run_startup_hooks,
+        restore_login_modules=behavior.restore_login_modules,
+        activate_directory=behavior.activate_directory,
         prompt=prompt_settings(site.get("prompt"), user.get("prompt")),
     )

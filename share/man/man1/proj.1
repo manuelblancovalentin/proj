@@ -270,7 +270,7 @@ does not create the Python environment.
 With
 .B --mine
 the environment is linked for you only: one small file of yours
-.RI "(~/.proj/overrides/" name ".toml)",
+.RI "(~/.config/proj/projects/" name ".toml)",
 read for environments that are not your own, replaces the Python link while
 every other part of the environment (modules, variables, paths) and the shared
 document stay as they are for everyone else. A private environment of yours is
@@ -400,6 +400,52 @@ proj config environment.PROJECT_MODE=development
 proj config paths.prepend='["${project.root}/bin"]'
 proj config aliases.project-root='cd ${project.root}'
 .fi
+.SH PERSONAL SETTINGS
+The
+.B [behavior]
+table of the user or site configuration holds
+.BR change_directory ,
+.BR run_startup_hooks ,
+.B restore_login_modules
+and
+.BR activate_directory .
+The same names can be set for one environment, for you only, in
+.IR ~/.config/proj/projects/ name .toml ,
+which
+.BI "proj config --env " name " --mine"
+.IB key = value
+writes (a key alone prints it;
+.B --mine --unset
+.I key
+forgets it). Keys:
+.BR behavior.change_directory ,
+.BR behavior.run_startup_hooks ,
+.BR behavior.restore_login_modules ,
+.BR behavior.activate_directory ,
+.B python.environment
+and
+.BR python.manager .
+Later wins, key by key: the site's
+.BR [behavior] ,
+yours, and your file for that environment. No project record changes, and nobody
+else sees these files. Anything else is refused, with the list.
+.PP
+.B activate_directory
+is a path template for where
+.B proj activate
+leaves the shell (default: the project root). It may use
+.BR ${project.root} ,
+.BR ${user} ,
+.BR ${project.name} ,
+.B ${project.metadata}
+and
+.BR ${user.home} ,
+and must expand to an absolute path. If the folder does not exist or cannot be
+entered, activation goes to the project root, silently (a line on stderr when
+.B PROJ_VERBOSE
+is set); a relative result or an unknown variable says so and uses the root.
+.B change_directory = false
+always wins.
 .SH FILES
 .TP
 .IR ~/.proj/envs/ name /project.toml
@@ -428,6 +474,11 @@ Generated Lmod modulefile cache.
 .IR PREFIX /shell/init.zsh ", " PREFIX /shell/init.bash
 Shell integration that permits activation to modify the parent shell.
 .SH ENVIRONMENT
+.TP
+.B PROJ_VERBOSE
+Any value but 0: say when
+.B activate_directory
+falls back to the project root.
 .TP
 .B PROJ_ACTIVE
 Name of the active project.

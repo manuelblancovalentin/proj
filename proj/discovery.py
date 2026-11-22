@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .config import Config
 from .errors import AccessDenied, ProjError
-from . import overrides
+from . import userconfig
 from .metadata import Project, load_project
 
 
@@ -92,7 +92,7 @@ def scan(config: Config, strict: bool = False, personal: bool = True) -> Discove
                 # An environment that is not the person's own may carry their
                 # own Python link (never anyone else's).
                 try:
-                    project = overrides.apply(config, project)
+                    project = userconfig.apply(config, project)
                 except ProjError as exc:
                     result.problems.append((metadata_path, str(exc)))
                     continue

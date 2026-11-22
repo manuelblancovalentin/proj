@@ -20,7 +20,7 @@ from . import (
     export,
     lmod,
     menu_runtime,
-    overrides,
+    userconfig,
     provenance,
     python_envs,
     sharing,
@@ -488,6 +488,14 @@ def _info_rows(config: Config, project: Project) -> list[tuple[str, str]]:
                 + (f"{shared} ({project.shared_manager or config.python_manager})" if shared else "no Python environment"),
             )
         )
+    mine = userconfig.read(config, project.name)
+    if mine and mine.behavior:
+        rows.append(
+            (
+                "Your settings",
+                "; ".join(f"{key} = {value}" for key, value in sorted(mine.behavior.items())),
+            )
+        )
     if project.python_spec:
         rows.append(("Python dependencies", provenance.describe(provenance.freshness(project))))
     if project.derived:
@@ -561,8 +569,64 @@ def cmd_info_code(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _config_mine(config: Config, project: Project, args: argparse.Namespace) -> int:
+    """`proj config --mine`: read, set or forget one thing for this person only,
+    under the same name the record or the configuration uses for it."""
+    key = args.assignment
+    raw_value = args.value
+    if args.unset:
+        if raw_value is not None or "=" in key:
+            raise ProjError("--unset takes a key only, without a value")
+        if not userconfig.unset_key(config, project.name, key):
+            raise ProjError(f"you have not overridden {key!r} for {project.name!r}")
+        print(f"Removed your override of {key} for {project.name!r}; the shared setting applies again.")
+        _reactivate_hint(project)
+        return 0
+    if "=" in key:
+        if raw_value is not None:
+            raise ProjError("use either key=value or key value, not both")
+        key, raw_value = key.split("=", 1)
+    if raw_value is None:
+        found = userconfig.read(config, project.name)
+        value = found.value(key) if found else None
+        if key not in userconfig.SETTABLE:
+            userconfig.validate(key, "x")
+        if value is None:
+            raise ProjError(f"you have not overridden {key!r} for {project.name!r}")
+        print(str(value).lower() if isinstance(value, bool) else value)
+        return 0
+    if key in ("python.environment", "python.manager"):
+        if access.scope(config, project) == "private":
+            raise ProjError(
+                f"{project.name!r} is your own environment: link its Python environment "
+                "with `proj set-python-env`, without --mine"
+            )
+        found = userconfig.read(config, project.name)
+        if key == "python.environment":
+            manager = (found.python[0] if found and found.python else None) or python_envs.manager_for(config, project)
+            environment = _python_environment(config, manager, raw_value, False)
+        elif found and found.python:
+            manager, environment = userconfig.validate(key, raw_value), found.python[1]
+        else:
+            raise ProjError(
+                "set the Python environment first: "
+                f"proj config --env {project.name} --mine python.environment=NAME"
+            )
+        target = userconfig.set_python(config, project.name, manager, environment)
+        print(f"Your Python environment for {project.name!r} is now {manager} {environment!r}.")
+    else:
+        value = parse_value(raw_value)
+        target = userconfig.set_key(config, project.name, key, value)
+        print(f"Your {key} for {project.name!r} is now {raw_value}.")
+    print(f"Recorded in {target}; only you see it. Remove it with --mine --unset {key}.")
+    _reactivate_hint(project)
+    return 0
+
+
 def cmd_config(config: Config, args: argparse.Namespace) -> int:
     project = _selected_project(config, args.project)
+    if args.mine:
+        return _config_mine(config, project, args)
     assignment = args.assignment
     raw_value = args.value
     if args.unset:
@@ -663,7 +727,7 @@ def _set_python_override(config: Config, project: Project, args: argparse.Namesp
     if args.unset:
         if args.environment or args.manager:
             raise ProjError("--mine --unset takes no environment or manager")
-        if not overrides.remove(config, project.name):
+        if not userconfig.unset_key(config, project.name, "python"):
             raise ProjError(f"you have no Python override for {project.name!r}")
         print(f"Removed your Python override of {project.name!r}.")
         print(f"It uses the shared environment's again: {shared_label}.")
@@ -673,10 +737,10 @@ def _set_python_override(config: Config, project: Project, args: argparse.Namesp
         raise ProjError("name the Python environment to use: proj set-python-env --mine <environment>")
     manager = args.manager or python_envs.manager_for(config, project)
     environment = _python_environment(config, manager, args.environment, False)
-    target = overrides.write(config, project.name, manager, environment)
+    target = userconfig.set_python(config, project.name, manager, environment)
     print(f"Your Python environment for {project.name!r} is now {manager} {environment!r}.")
     print(f"The shared environment is unchanged for everyone else; it links {shared_label}.")
-    print(f"Recorded in {target}; remove it with `proj set-python-env --env {project.name} --mine --unset`.")
+    print(f"Recorded in {target}; remove it with `proj config --env {project.name} --mine --unset python`.")
     _reactivate_hint(project)
     return 0
 
@@ -841,7 +905,7 @@ def _status_document(config, project, is_active, drift, build, git, loaded) -> d
     python = export._python(config, project)
     if python:
         python.pop("prefix", None)
-        python["environment_source"] = overrides.source(config, project)
+        python["environment_source"] = userconfig.source(config, project)
     document["environment"] = {
         "name": project.name,
         "scope": access.scope(config, project),
@@ -1478,6 +1542,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     config_parser.add_argument(
         "--unset", action="store_true", help="remove the key instead of reading or writing it"
+    )
+    config_parser.add_argument(
+        "--mine",
+        action="store_true",
+        help="read, set or --unset the key for you only, in your own file; the environment "
+        "stays as it is for everyone else (python.environment, python.manager, behavior.*)",
     )
     config_parser.add_argument("assignment")
     config_parser.add_argument("value", nargs="?")

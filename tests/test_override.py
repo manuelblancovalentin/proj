@@ -10,7 +10,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from proj import overrides
+from proj import userconfig
 from proj.cli import main
 from proj.config import load_config
 from proj.discovery import resolve, scan
@@ -79,14 +79,14 @@ class OverrideTests(unittest.TestCase):
         code, out, _ = self.mine("--manager", "conda", self.prefix("mine"))
         self.assertEqual(code, 0)
         self.assertEqual(self.document.read_bytes(), before)
-        target = overrides.path(self.config, "trunorth")
+        target = userconfig.path(self.config, "trunorth")
         self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(target.parent.stat().st_mode), 0o700)
         self.assertIn("unchanged for everyone else", out)
         self.assertIn(self.prefix("lab"), out)
         # Only a manager and an environment are recorded: nothing that runs.
         self.assertEqual(
-            overrides.load(self.config, "trunorth"), ("conda", self.prefix("mine"))
+            userconfig.python_override(self.config, "trunorth"), ("conda", self.prefix("mine"))
         )
         self.assertEqual(
             sorted(line.split(" = ")[0] for line in target.read_text().splitlines() if " = " in line),
@@ -98,7 +98,7 @@ class OverrideTests(unittest.TestCase):
         code, out, _ = self.mine("--unset")
         self.assertEqual(code, 0)
         self.assertIn("uses the shared environment's again", out)
-        self.assertFalse(overrides.path(self.config, "trunorth").exists())
+        self.assertFalse(userconfig.path(self.config, "trunorth").exists())
         self.assertEqual(resolve(self.config, "trunorth").python_environment, self.prefix("lab"))
         code, _, err = self.mine("--unset")
         self.assertEqual(code, 2)
@@ -112,14 +112,14 @@ class OverrideTests(unittest.TestCase):
         self.assertIn("--mine", err)
         code, _, err = self.mine(str(self.base / "no-such-prefix"))
         self.assertEqual(code, 2)
-        self.assertFalse(overrides.path(self.config, "trunorth").exists())
+        self.assertFalse(userconfig.path(self.config, "trunorth").exists())
 
     def test_a_private_environment_is_edited_not_overridden(self):
         create_document(self.config.registry / "own" / "project.toml", "own", self.work)
         code, _, err = self.proj("set-python-env", "--env", "own", "--mine", self.prefix("mine"))
         self.assertEqual(code, 2)
         self.assertIn("your own environment", err)
-        self.assertFalse(overrides.directory(self.config).exists())
+        self.assertFalse(userconfig.directory(self.config).exists())
 
     def test_the_reactivate_hint_is_for_the_active_environment(self):
         self.assertNotIn("Reactivate", self.mine(self.prefix("mine"))[1])
@@ -150,7 +150,10 @@ class OverrideTests(unittest.TestCase):
     def test_another_person_does_not_see_it(self):
         self.mine(self.prefix("mine"))
         other_home = self.base / "other-home"
-        with patch.dict(os.environ, {"PROJ_HOME": str(other_home)}):
+        with patch.dict(
+            os.environ,
+            {"PROJ_HOME": str(other_home), "PROJ_CONFIG": str(self.base / "other-config" / "config.toml")},
+        ):
             other = load_config()
             self.assertEqual(
                 resolve(other, "trunorth").python_environment, self.prefix("lab")
@@ -159,8 +162,24 @@ class OverrideTests(unittest.TestCase):
 
     def test_a_stale_file_for_a_private_environment_is_ignored(self):
         create_document(self.config.registry / "own" / "project.toml", "own", self.work)
-        overrides.write(self.config, "own", "conda", self.prefix("mine"))
+        userconfig.set_python(self.config, "own", "conda", self.prefix("mine"))
         self.assertIsNone(resolve(self.config, "own").python_override)
+
+    def test_a_link_kept_by_0_9_0_still_counts_and_moves_to_the_new_file(self):
+        old = userconfig.legacy_path(self.config, "trunorth")
+        old.parent.mkdir(parents=True)
+        old.write_text(
+            f'schema = 1\n\n[python]\nmanager = "conda"\nenvironment = "{self.prefix("mine")}"\n'
+        )
+        found = resolve(self.config, "trunorth")
+        self.assertEqual((found.python_manager, found.python_environment), ("conda", self.prefix("mine")))
+        self.proj("config", "--env", "trunorth", "--mine", "behavior.change_directory=false")
+        self.assertFalse(old.exists())
+        self.assertEqual(
+            userconfig.python_override(self.config, "trunorth"), ("conda", self.prefix("mine"))
+        )
+        self.assertFalse(userconfig.behavior(self.config, "trunorth").change_directory)
+        self.assertEqual(userconfig.path(self.config, "trunorth").parent.name, "projects")
 
     def test_the_shared_environment_can_still_be_relinked_by_its_owner(self):
         self.mine("--manager", "conda", self.prefix("mine"))
@@ -230,28 +249,30 @@ class OverrideTests(unittest.TestCase):
     # --- refusals ---------------------------------------------------------
 
     def test_an_invalid_file_stops_that_environment_for_this_person_only(self):
-        target = overrides.directory(self.config) / "trunorth.toml"
+        target = userconfig.directory(self.config) / "trunorth.toml"
         target.parent.mkdir(parents=True)
         for content, message in (
             ('schema = 1\n[python]\nmanager = "conda"\nenvironment = "x"\nrun = "rm"\n', "unknown python keys"),
             ('schema = 1\n[python]\nmanager = "pip"\nenvironment = "x"\n', "manager must be one of"),
             ('schema = 1\n[python]\nmanager = "conda"\n', "environment must be"),
             ('schema = 2\n[python]\nmanager = "conda"\nenvironment = "x"\n', "schema must be 1"),
-            ('schema = 1\n[hooks]\nstartup = []\n', "only a [python] table"),
+            ('schema = 1\n[hooks]\nstartup = []\n', "only [python] and [behavior] tables"),
+            ('schema = 1\n[behavior]\nrun = "rm"\n', "unknown behavior key(s): run"),
+            ('schema = 1\n[behavior]\nchange_directory = "no"\n', "behavior.change_directory must be true or false"),
             ("not toml [", "cannot read"),
         ):
             target.write_text(content)
             with self.assertRaises(ProjError, msg=content) as caught:
                 resolve(self.config, "trunorth")
             self.assertIn(message, str(caught.exception))
-            self.assertIn("your Python override", str(caught.exception))
+            self.assertIn("your settings", str(caught.exception))
         found = scan(self.config)
         self.assertEqual(len(found.problems), 1)
         self.assertNotIn("trunorth", found.projects)
 
     def test_a_world_writable_file_is_refused(self):
         self.mine(self.prefix("mine"))
-        target = overrides.path(self.config, "trunorth")
+        target = userconfig.path(self.config, "trunorth")
         target.chmod(0o666)
         with self.assertRaises(ProjError) as caught:
             resolve(self.config, "trunorth")

@@ -164,19 +164,28 @@ activation.
   (the names; the contract for other tools) and the internal `PROJ_PROMPT_TABLE`.
   Outside an environment proj touches nothing of the manager's or the prompt.
   The emoji list in the doc is the one registry: add a row when adding a token.
-- A person's Python override (`proj set-python-env --mine`, `proj/overrides.py`)
-  is one file, `<proj home>/overrides/<name>.toml` (mode 0600), holding only
-  `[python] manager` and `environment`; unknown keys are refused. `discovery.scan`
-  applies it to environments outside the private registry, replacing
-  `python_manager`/`python_environment` on the `Project` (so activation, the
-  generated module, `info` and `status` agree) and recording the shared link in
-  `Project.python_override`. It never writes the shared document, runs nothing,
-  and is ignored for a private environment. An invalid or world-writable file
-  makes that environment unusable for that person (reported with the override's
-  path) rather than silently using the shared link. `status --json` reports
-  `python.environment_source` (`shared`, `override`, `own`); `list --json`
-  never reads overrides. `proj create` and `proj share` still refuse an
-  existing name.
+- A person's own settings for one environment live with their configuration,
+  not in a separate place: `~/.config/proj/projects/<name>.toml` (mode 0600, in
+  `proj/userconfig.py`), written by `proj config --env NAME --mine KEY=VALUE`
+  (and `--mine KEY`, `--mine --unset KEY`; `proj set-python-env --mine` is the
+  Python link), using the names the record and `[behavior]` use. `SETTABLE` is
+  the one registry of what it may hold (`python.manager`, `python.environment`,
+  `behavior.*`); it can run nothing and unknown keys are refused. To make a
+  setting personal, add it there. Whatever is in a person's files is an override:
+  the layers are the site's `[behavior]`, the person's, then their file for the
+  environment; read behavior through `userconfig.behavior(config, name)`, never
+  the global `Config` fields. `discovery.scan` applies `[python]` to environments
+  outside the private registry, replacing `python_manager`/`python_environment`
+  on the `Project` (so activation, the generated module, `info` and `status`
+  agree) and recording the shared link in `Project.python_override`; it never
+  writes the shared document and is ignored for a private environment. An invalid
+  or world-writable file makes that environment unusable for that person
+  (reported with the file's path) rather than silently using the shared link;
+  deactivation ignores an unreadable file. `status --json` reports
+  `python.environment_source` (`shared`, `override`, `own`); `list --json` never
+  reads it. The 0.9.0 location `<proj home>/overrides/<name>.toml` is still
+  read and is folded in (and removed) at the next write. `proj create` and
+  `proj share` still refuse an existing name.
 - Precedence is private, shared, then extra roots; a private environment
   shadows a shared one with the same name.
 - `proj share`/`proj unshare` move an environment between your private and the
@@ -201,6 +210,17 @@ activation.
   a Python environment that is not the recorded one is refused, naming what
   differs; `--force` leaves anyway and never touches any other Python
   environment. Nothing here edits a document.
+- `BEHAVIOR_SETTINGS` (`proj/config.py`) is the one registry of the
+  `[behavior]` settings (`change_directory`, `run_startup_hooks`,
+  `restore_login_modules`, `activate_directory`): add one there (its type) and
+  in `Behavior`, and validation, a person's per-environment setting and its
+  messages follow. `activate_directory` is a template (`${project.root}`,
+  `${user}`, `${project.name}`, `${project.metadata}`, `${user.home}`) resolved
+  in `shell.activation_directory`: the CLI passes the chosen folder to the
+  adapter as the directory to enter (so an older adapter works), a bad template
+  or missing folder falls back to the root, and `change_directory = false`
+  still wins. No project record changes. A default of such a setting in a
+  project record would be one more layer below the person's; none exists yet.
 - `--env` is the canonical explicit environment selector. Keep `--project` as
   a compatibility alias unless a deliberate breaking migration removes it.
 - Shell initialization must never activate an environment. Only an explicit

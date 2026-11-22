@@ -130,12 +130,15 @@ project root. Hooks and future commands are argv arrays. Hooks run without a
 shell. Commands are validated and displayed by `proj env show`, but execution
 is deferred.
 
-## A person's Python override
+## A person's own settings for an environment
 
-A shared (or other) environment's `python.environment` is the same for every
-member. A member who wants their own conda environment with it writes
-`<proj home>/overrides/<name>.toml` (`~/.proj/overrides/<name>.toml`), which
-`proj set-python-env --env NAME --mine` does:
+A shared (or other) environment's record is the same for every member. A member
+who wants something different for themselves keeps it in their own
+configuration, under the same names: `~/.config/proj/config.toml` for every
+environment, and `~/.config/proj/projects/<name>.toml` for one. The second is
+written by `proj config --env NAME --mine KEY=VALUE` (and read back or removed
+with `--mine KEY` and `--mine --unset KEY`; `proj set-python-env --mine` is the
+Python link):
 
 ```toml
 schema = 1
@@ -143,11 +146,16 @@ schema = 1
 [python]
 manager = "conda"          # micromamba, conda or mamba
 environment = "my-atlas"   # a name or an absolute prefix
+
+[behavior]                 # the settings of [behavior] in config.toml
+activate_directory = "${project.root}/${user}"
 ```
 
-Nothing else is accepted: no hooks, no variables, no other keys. The file is read
-only for environments that are not the person's own, replaces `python.manager`
-and `python.environment` for that person, and never changes the shared document.
+Only the keys listed in `SETTABLE` (`proj/userconfig.py`) are accepted: `python.manager`,
+`python.environment` and every `behavior.*` setting. No hooks, variables or other
+keys. `[python]` is read only for environments that are not the person's own,
+replaces `python.manager` and `python.environment` for that person, and never
+changes the shared document; `[behavior]` applies to every environment they use.
 An invalid or world-writable file makes that environment unusable for that person
 until it is fixed or removed (`--mine --unset`), so a typo never silently
 activates the shared Python environment instead. `proj config python.environment`

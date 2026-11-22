@@ -435,13 +435,15 @@ proj info --env atlas                                  # "Python override: yours
 proj set-python-env --env atlas --mine --unset         # back to the shared one
 ```
 
-It is one small file of yours, `~/.proj/overrides/atlas.toml` (a manager and an
-environment, mode 0600; `$PROJ_HOME/overrides` when `PROJ_HOME` is set). The
-shared document is never written, nobody else sees the choice, and nothing runs
+This is one of your own settings for the environment, kept with your
+configuration in `~/.config/proj/projects/atlas.toml` (see
+[Your own settings for one environment](#your-own-settings-for-one-environment));
+`proj config --env atlas --mine python.environment=my-atlas` is the same thing.
+The shared document is never written, nobody else sees the choice, and nothing runs
 beyond what the environment already runs. `proj info`, `proj status` and
 `proj status --json` (`python.environment_source`: `override`, `shared` or
 `own`) say that it is in effect. Reactivate the environment to apply a change.
-`--unset` removes only that file, never a conda environment. For an environment
+`--unset` forgets only your choice, never a conda environment. For an environment
 of your own, link the Python environment normally (no `--mine`).
 
 ### Variables, paths, and aliases
@@ -892,12 +894,68 @@ module_cache = "~/.cache/proj/modulefiles"
 change_directory = true              # cd to the project root on activation
 run_startup_hooks = true             # run startup hooks on activation
 restore_login_modules = true         # deactivate loads back login modules the environment displaced
+activate_directory = "${project.root}/${user}"   # where activation leaves the shell (default: the project root)
 
 [prompt]
 show_tokens = true                   # emoji in the marker for a Python or wolf environment
 hide_manager_prefix = true           # no "(environment)" from the Python manager while proj is active
 plain = false                        # always the ASCII form of the tokens
 ```
+
+#### Your own settings for one environment
+
+Whatever is set in your own files is your override, so there is no separate
+mechanism: `~/.config/proj/config.toml` holds your settings for every
+environment, and `~/.config/proj/projects/NAME.toml` holds them for one
+environment, with **the same names** (it is a configuration file that applies to
+that environment only; mode 0600, written by proj and fine to edit by hand):
+
+```toml
+schema = 1
+
+[python]                              # your own Python environment for a shared one
+manager = "conda"
+environment = "my-atlas"
+
+[behavior]                            # the same settings as [behavior] above
+activate_directory = "${project.root}/${user}"
+```
+
+You do not have to write it. `--mine` sets, reads and forgets a key in it, for
+any setting you may change:
+
+```sh
+proj config --env atlas --mine behavior.activate_directory='${project.root}/${user}'
+proj config --env atlas --mine python.environment=my-atlas   # = proj set-python-env --mine
+proj config --env atlas --mine behavior.change_directory     # print your value
+proj config --env atlas --mine --unset behavior.activate_directory
+proj config --env atlas --mine --unset python                # forget the whole Python link
+```
+
+Later wins, key by key: the site's `[behavior]`, your `[behavior]`, your file for
+that environment. Nothing in the environment's record changes and nobody else
+sees your files. A key you may not change this way (`project.root`, modules,
+aliases, hooks, ...) is refused with the list of those you may. `proj info`
+shows "Your settings" when you have some.
+
+| Setting | Meaning |
+|---|---|
+| `behavior.change_directory` | `false` leaves the shell where it is, whatever `activate_directory` says |
+| `behavior.run_startup_hooks` | run the startup hooks on activation |
+| `behavior.restore_login_modules` | put your login's modules back on deactivation |
+| `behavior.activate_directory` | a path template for where activation lands; default the project root |
+| `python.environment`, `python.manager` | your own Python link, for an environment that is not yours |
+
+`activate_directory` takes `${project.root}`, `${user}` (your login name),
+`${project.name}`, `${project.metadata}` and `${user.home}`, and must expand to an
+absolute path. If the folder does not exist or cannot be entered, activation
+goes to the project root, silently (a line on stderr with `PROJ_VERBOSE=1`); a
+template that is relative or uses an unknown variable says so and uses the root.
+`${project.root}`, aliases, `paths.prepend` and `PROJ_ROOT` are not affected.
+It is read when you run `proj activate`, so it needs only the new `proj`, not a
+new shell; an environment that is already active needs `proj reload`.
+`proj 0.9.0` kept the Python link in `~/.proj/overrides/NAME.toml`; that file is
+still read and moves into the new one the next time you change a setting there.
 
 Unknown keys are rejected, so typos fail loudly. `proj doctor` shows the
 effective site configuration, registries, and Python manager.
@@ -913,6 +971,7 @@ effective site configuration, registries, and Python manager.
 | `PROJ_PROJECT_ROOTS` | Extra metadata roots (colon-separated) |
 | `PROJ_CACHE_HOME` | Cache directory (`~/.cache/proj`) |
 | `PROJ_PYTHON` | Interpreter that runs proj |
+| `PROJ_VERBOSE` | Any value but `0`: say when `activate_directory` falls back to the root |
 | `PROJ_PROMPT` | `off` stops the adapters from adding the prompt segment |
 | `PROJ_PLAIN_PROMPT` | `1` writes the prompt tokens in ASCII (`py`, `wolf`) instead of emoji |
 | `PROJ_GLOBAL_BIN`, `PROJ_GLOBAL_MAN`, `PROJ_GLOBAL_TLDR` | Link targets of `proj install` |

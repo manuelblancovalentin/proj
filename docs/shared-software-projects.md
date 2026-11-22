@@ -81,7 +81,7 @@ proj set-python-env --env atlas --mine --unset
 ```
 
 Modules, variables, paths and the shared document stay as they are, for you
-and for everyone else; the file is `~/.proj/overrides/atlas.toml`.
+and for everyone else; your choice is kept in `~/.config/proj/projects/atlas.toml`, with the rest of your own configuration.
 `proj status --env atlas --json` says `"environment_source": "override"`.
 A copy (`--from`, above) is for when the modules or variables change too.
 
